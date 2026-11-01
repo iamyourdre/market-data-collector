@@ -1,0 +1,156 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Crypto Market Data Collector & Visualizer</title>
+  <link rel="stylesheet" href="style.css">
+  <!-- Google Fonts Inter -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Fira+Code:wght@400;500&display=swap" rel="stylesheet">
+  <!-- TradingView Lightweight Charts Library (Pinned to 4.2.1 for maximum stability) -->
+  <script src="https://unpkg.com/lightweight-charts@4.2.1/dist/lightweight-charts.standalone.production.js"></script>
+</head>
+<body>
+
+  <!-- Top Header -->
+  <header>
+    <div class="brand">
+      <span class="brand-icon">⚡</span>
+      <div>
+        <h1 id="headerTitle">Crypto Market Data Inspector</h1>
+        <div style="display: flex; gap: 0.5rem; align-items: center; margin-top: 2px;">
+          <span class="badge" id="badgeExchange">EXCHANGE</span>
+          <span class="badge" id="badgeSymbol">SYMBOL</span>
+          <span class="badge" id="badgeTimeframe">TF</span>
+          <span class="badge" id="badgeCandles">0 CANDLES</span>
+        </div>
+      </div>
+    </div>
+    <div class="header-actions">
+      <div style="display: flex; align-items: center; gap: 0.5rem;">
+        <label for="datasetSelect" style="font-size: 0.8rem; color: var(--text-dim);">Dataset:</label>
+        <select id="datasetSelect" class="btn" style="background-color: var(--bg-card); padding: 0.45rem 0.8rem; cursor: pointer; outline: none;">
+          <option value="">Loading datasets...</option>
+        </select>
+      </div>
+      <input type="file" id="fileInput" accept=".json" style="display: none;">
+      <button class="btn" id="btnUpload" onclick="document.getElementById('fileInput').click()">
+        📁 Upload JSON
+      </button>
+      <button class="btn btn-primary" id="btnDownloadJson">
+        ⬇ Download Clean JSON
+      </button>
+    </div>
+  </header>
+
+  <!-- Key Metrics Bar -->
+  <section class="stats-grid">
+    <div class="stat-card">
+      <span class="stat-label">Latest Price</span>
+      <span class="stat-value" id="statPrice">$0.00</span>
+      <span class="stat-sub" id="statPriceChange">0.00%</span>
+    </div>
+    <div class="stat-card">
+      <span class="stat-label">90D High / Low</span>
+      <span class="stat-value" id="statRange">$0 - $0</span>
+      <span class="stat-sub">Historical Range</span>
+    </div>
+    <div class="stat-card">
+      <span class="stat-label">Latest RSI (14)</span>
+      <span class="stat-value" id="statRSI">0.00</span>
+      <span class="stat-sub" id="statRSILabel">Neutral</span>
+    </div>
+    <div class="stat-card">
+      <span class="stat-label">Latest MACD (12, 26, 9)</span>
+      <span class="stat-value" id="statMACD">0.00</span>
+      <span class="stat-sub" id="statMACDHist">Hist: 0.00</span>
+    </div>
+    <div class="stat-card">
+      <span class="stat-label">Funding Rate</span>
+      <span class="stat-value" id="statFunding">0.0000%</span>
+      <span class="stat-sub">Perpetual Contract</span>
+    </div>
+    <div class="stat-card">
+      <span class="stat-label">Open Interest</span>
+      <span class="stat-value" id="statOI">0.00</span>
+      <span class="stat-sub" id="statOIUsd">Active Market Depth</span>
+    </div>
+  </section>
+
+  <!-- View Mode Tabs -->
+  <div class="tabs-container">
+    <button class="tab-btn active" id="tabCharts" onclick="switchTab('charts')">📈 Interactive Charts</button>
+    <button class="tab-btn" id="tabJson" onclick="switchTab('json')">{ } Raw JSON Data</button>
+  </div>
+
+  <!-- Main Content -->
+  <main class="content-container">
+
+    <!-- Charts View -->
+    <div id="chartsView" style="display: flex; flex-direction: column; gap: 1.25rem;">
+      <!-- Chart 1: Candlestick + EMA + Volume -->
+      <div class="chart-card">
+        <div class="chart-header">
+          <span class="chart-title">Candlestick Price & Volume</span>
+          <div class="chart-legend">
+            <span class="legend-item"><span class="legend-color" style="background: var(--ema-20)"></span> EMA 20</span>
+            <span class="legend-item"><span class="legend-color" style="background: var(--ema-50)"></span> EMA 50</span>
+            <span class="legend-item"><span class="legend-color" style="background: var(--ema-200)"></span> EMA 200</span>
+          </div>
+        </div>
+        <div id="priceChartContainer" class="chart-wrapper"></div>
+      </div>
+
+      <!-- Chart 2: RSI 14 -->
+      <div class="chart-card">
+        <div class="chart-header">
+          <span class="chart-title">RSI (14) - Relative Strength Index</span>
+          <div class="chart-legend">
+            <span class="legend-item" style="color: #ef4444;">Overbought (70)</span>
+            <span class="legend-item" style="color: #10b981;">Oversold (30)</span>
+          </div>
+        </div>
+        <div id="rsiChartContainer" class="chart-wrapper-small"></div>
+      </div>
+
+      <!-- Chart 3: MACD (12, 26, 9) -->
+      <div class="chart-card">
+        <div class="chart-header">
+          <span class="chart-title">MACD (12, 26, 9) Oscillator</span>
+          <div class="chart-legend">
+            <span class="legend-item"><span class="legend-color" style="background: #38bdf8;"></span> MACD Line</span>
+            <span class="legend-item"><span class="legend-color" style="background: #f59e0b;"></span> Signal</span>
+          </div>
+        </div>
+        <div id="macdChartContainer" class="chart-wrapper-small"></div>
+      </div>
+
+      <!-- Chart 4: Derivatives (Open Interest & Funding Rate) -->
+      <div class="chart-card">
+        <div class="chart-header">
+          <span class="chart-title">Derivatives: Open Interest & Funding Rate</span>
+          <div class="chart-legend">
+            <span class="legend-item"><span class="legend-color" style="background: #a855f7;"></span> Open Interest</span>
+            <span class="legend-item"><span class="legend-color" style="background: #10b981;"></span> Funding Rate</span>
+          </div>
+        </div>
+        <div id="derivativesChartContainer" class="chart-wrapper-small"></div>
+      </div>
+    </div>
+
+    <!-- JSON View -->
+    <div id="jsonView" class="json-view-container">
+      <div class="json-toolbar">
+        <input type="text" id="jsonSearch" class="search-input" placeholder="Search JSON keys/values..." oninput="filterJson()">
+        <button class="btn" onclick="copyJson()">📋 Copy Full JSON</button>
+      </div>
+      <pre id="jsonDisplay">Loading JSON...</pre>
+    </div>
+
+  </main>
+
+  <script src="app.js"></script>
+</body>
+</html>
