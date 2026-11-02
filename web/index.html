@@ -1,0 +1,499 @@
+<!DOCTYPE html>
+<html lang="id">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>0XDREE // Crypto Forecast Engine - Multi-Method Quantitative Predictor</title>
+  <meta name="description"
+    content="Platform peramalan kuantitatif kripto multi-metode berbasis Holt-Winters, Fourier FFT, Kalman Filter OU, ARX-Ridge, k-NN, GARCH(1,1), dan Monte Carlo Barrier Simulator.">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link
+    href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap"
+    rel="stylesheet">
+  <link rel="stylesheet" href="/static/style.css?v=2.0.3">
+</head>
+
+<body>
+
+  <!-- Navigation Bar -->
+  <header class="navbar">
+    <div class="brand-section">
+      <div class="brand-logo">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"
+          stroke-linejoin="round">
+          <polyline points="22 7 13.5 15.5 8.5 10.5 2 17"></polyline>
+          <polyline points="16 7 22 7 22 13"></polyline>
+        </svg>
+      </div>
+      <div class="brand-info">
+        <h1>0XDREE <span style="font-weight: 400; font-size: 0.8rem; color: var(--color-cyan);">v2.0</span>
+        </h1>
+        <div class="tagline">Forecast Engine</div>
+      </div>
+    </div>
+
+    <div class="nav-controls">
+      <div class="badge-live" id="liveBadge">
+        <span class="pulse-dot"></span>
+        <span id="activeSymbolText">ETHUSDT • 15m</span>
+      </div>
+
+      <!-- Preset Selector -->
+      <div class="dataset-select-wrap">
+        <select id="presetSelect" class="dataset-select" title="Pilih Dataset Pasar">
+          <option value="" disabled>Memuat dataset...</option>
+        </select>
+        <div class="select-arrow">▼</div>
+      </div>
+
+      <!-- Horizon Selector -->
+      <div class="horizon-toggle" title="Pilih Horizon Peramalan (Langkah Lilin)">
+        <button class="horizon-btn" data-steps="16">16 (4h)</button>
+        <button class="horizon-btn" data-steps="32">32 (8h)</button>
+        <button class="horizon-btn active" data-steps="48">48 (12h)</button>
+        <button class="horizon-btn" data-steps="96">96 (24h)</button>
+      </div>
+
+      <!-- Quick Action Buttons -->
+      <button class="btn btn-secondary btn-sm" id="btnOpenUpload" title="Unggah file JSON lokal">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+          <polyline points="17 8 12 3 7 8"></polyline>
+          <line x1="12" y1="3" x2="12" y2="15"></line>
+        </svg>
+        Upload JSON
+      </button>
+
+      <button class="btn btn-secondary btn-sm" id="btnOpenLiveFetch"
+        title="Unduh dataset Binance Futures ke komputer lokal">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+          <polyline points="7 10 12 15 17 10"></polyline>
+          <line x1="12" y1="15" x2="12" y2="3"></line>
+        </svg>
+        Download Binance
+      </button>
+
+      <button class="btn btn-primary btn-sm" id="btnRunForecast">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+          <polygon points="5 3 19 12 5 21 5 3"></polygon>
+        </svg>
+        Run Forecast
+      </button>
+    </div>
+  </header>
+
+  <!-- Main Content Container -->
+  <main class="main-container">
+
+    <!-- Top Key Metrics Row -->
+    <section class="metrics-row">
+      <!-- 1. Spot Price -->
+      <div class="metric-card accent-cyan">
+        <div class="metric-header">
+          <span class="metric-label">Harga Spot Terkini</span>
+          <span class="metric-tag tag-neutral" id="metricTimeframeTag">15m</span>
+        </div>
+        <div class="metric-value" id="valSpotPrice">$0.00</div>
+        <div class="metric-footer">
+          <span>Range 24h:</span>
+          <span class="metric-change" id="val24hRange">$0 - $0</span>
+        </div>
+      </div>
+
+      <!-- 2. Ensemble Target -->
+      <div class="metric-card accent-purple">
+        <div class="metric-header">
+          <span class="metric-label">Target Horizon Ensemble</span>
+          <span class="metric-tag tag-bullish" id="metricBiasTag">BULLISH</span>
+        </div>
+        <div class="metric-value" id="valHorizonPrice">$0.00</div>
+        <div class="metric-footer">
+          <span>Ekspektasi Return:</span>
+          <span class="metric-change up" id="valExpectedReturn">+0.00%</span>
+        </div>
+      </div>
+
+      <!-- 3. GARCH(1,1) Volatility -->
+      <div class="metric-card accent-amber">
+        <div class="metric-header">
+          <span class="metric-label">GARCH(1,1) Volatilitas</span>
+          <span class="metric-tag tag-neutral" id="metricPersistenceTag">P: 0.95</span>
+        </div>
+        <div class="metric-value" id="valDailyVol">0.00%</div>
+        <div class="metric-footer">
+          <span>Persistensi Rejim:</span>
+          <span class="metric-change" id="valVolPersistence">Stabil</span>
+        </div>
+      </div>
+
+      <!-- 4. Model Directional Accuracy -->
+      <div class="metric-card accent-green">
+        <div class="metric-header">
+          <span class="metric-label">Walk-Forward Accuracy</span>
+          <span class="metric-tag tag-bullish" id="metricBestModelTag">Best Model</span>
+        </div>
+        <div class="metric-value" id="valDirectionalAccuracy">0.0%</div>
+        <div class="metric-footer">
+          <span>Path RMSE:</span>
+          <span class="metric-change" id="valPathRMSE">$0.00</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- Main Chart Section -->
+    <section class="chart-card">
+      <div class="chart-header">
+        <div class="chart-title-area">
+          <div class="chart-title">
+            <span id="chartSymbolHeader">ETHUSDT</span>
+            <span class="chart-badge" id="chartCandlesCount">96 Lilin</span>
+            <span class="chart-badge" id="chartIntervalBadge">15 Menit</span>
+          </div>
+        </div>
+
+        <div class="chart-toolbar">
+          <!-- Candlestick vs Line Toggle -->
+          <div class="chart-mode-toggle">
+            <button class="mode-btn active" id="btnModeCandles">Candles</button>
+            <button class="mode-btn" id="btnModeLine">Line</button>
+          </div>
+
+          <!-- Model Legend & Visibility Toggles -->
+          <div class="model-toggles">
+            <label class="toggle-chip active" style="--chip-color: #00f2fe;">
+              <input type="checkbox" id="chkM6" checked>
+              <span class="color-dot" style="background: #00f2fe;"></span>
+              M6 Ensemble
+            </label>
+            <label class="toggle-chip active" style="--chip-color: #8b5cf6;">
+              <input type="checkbox" id="chkM1" checked>
+              <span class="color-dot" style="background: #8b5cf6;"></span>
+              M1 Holt
+            </label>
+            <label class="toggle-chip active" style="--chip-color: #10b981;">
+              <input type="checkbox" id="chkM2" checked>
+              <span class="color-dot" style="background: #10b981;"></span>
+              M2 Fourier
+            </label>
+            <label class="toggle-chip active" style="--chip-color: #f59e0b;">
+              <input type="checkbox" id="chkM3" checked>
+              <span class="color-dot" style="background: #f59e0b;"></span>
+              M3 Kalman
+            </label>
+            <label class="toggle-chip active" style="--chip-color: #ec4899;">
+              <input type="checkbox" id="chkM4" checked>
+              <span class="color-dot" style="background: #ec4899;"></span>
+              M4 ARX-Ridge
+            </label>
+            <label class="toggle-chip active" style="--chip-color: #06b6d4;">
+              <input type="checkbox" id="chkM5" checked>
+              <span class="color-dot" style="background: #06b6d4;"></span>
+              M5 kNN
+            </label>
+            <label class="toggle-chip active" style="--chip-color: rgba(0, 242, 254, 0.4);">
+              <input type="checkbox" id="chkCI" checked>
+              <span class="color-dot" style="background: rgba(0, 242, 254, 0.5);"></span>
+              GARCH Cones
+            </label>
+          </div>
+        </div>
+      </div>
+
+      <!-- Main Canvas Viewport -->
+      <div class="chart-viewport" id="chartViewport">
+        <canvas id="forecastCanvas"></canvas>
+        <div class="chart-hud" id="chartHud">
+          <div class="hud-date" id="hudDate">--</div>
+          <div class="hud-grid" id="hudGrid">
+            <!-- Dynamic HUD Values -->
+          </div>
+        </div>
+      </div>
+
+      <!-- Sub-Charts Section: RSI / MACD / CVD / OI -->
+      <div class="subchart-section">
+        <div class="subchart-tabs">
+          <button class="subchart-tab-btn active" data-sub="rsi">RSI (14)</button>
+          <button class="subchart-tab-btn" data-sub="macd">MACD (12, 26, 9)</button>
+          <button class="subchart-tab-btn" data-sub="cvd">Order Flow CVD</button>
+          <button class="subchart-tab-btn" data-sub="oi">Open Interest & Funding</button>
+        </div>
+        <div class="subchart-viewport">
+          <canvas id="subCanvas"></canvas>
+        </div>
+      </div>
+    </section>
+
+    <!-- Secondary Panels: Models Optimization & Monte Carlo Barriers -->
+    <section class="panels-grid">
+
+      <!-- Panel 1: Model Ensemble Intelligence -->
+      <div class="panel-card">
+        <div class="panel-title">
+          <span>Bobot Ensemble & Akurasi Walk-Forward</span>
+          <span style="font-size: 0.75rem; color: var(--text-muted); font-family: var(--font-mono);">Simplex
+            Optimizer</span>
+        </div>
+
+        <div class="models-list" id="modelsList">
+          <!-- Populated by JS -->
+        </div>
+
+        <!-- Walk-Forward Performance Table -->
+        <div style="margin-top: 0.5rem;">
+          <div
+            style="font-size: 0.78rem; font-weight: 700; color: var(--text-secondary); margin-bottom: 0.5rem; text-transform: uppercase;">
+            Metrik Evaluasi Out-of-Sample:
+          </div>
+          <div class="table-responsive">
+            <table class="data-table" id="metricsTable">
+              <thead>
+                <tr>
+                  <th>Model</th>
+                  <th>Bobot</th>
+                  <th>Path RMSE</th>
+                  <th>Path MAE</th>
+                  <th>Path MAPE</th>
+                  <th>4h DA</th>
+                  <th>Avg DA</th>
+                </tr>
+              </thead>
+              <tbody id="metricsTableBody">
+                <!-- Populated by JS -->
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <!-- Panel 2: First-Passage Barrier Simulator -->
+      <div class="panel-card">
+        <div class="panel-title">
+          <span>Probabilitas Barrier Student-t Monte Carlo</span>
+          <span style="font-size: 0.75rem; color: var(--color-cyan); font-family: var(--font-mono);"
+            id="mcPathsCount">10,000 Paths</span>
+        </div>
+
+        <div class="barriers-container">
+          <!-- Upside Targets -->
+          <div>
+            <div class="barrier-group-title" style="color: var(--color-green);">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+                <polyline points="18 15 12 9 6 15"></polyline>
+              </svg>
+              Target Upside (Resistensi)
+            </div>
+            <div class="barrier-cards-grid" id="upsideBarriersGrid">
+              <!-- Populated by JS -->
+            </div>
+          </div>
+
+          <!-- Downside Targets -->
+          <div>
+            <div class="barrier-group-title" style="color: var(--color-red);">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+                <polyline points="6 9 12 15 18 9"></polyline>
+              </svg>
+              Target Downside (Support / Stop Loss)
+            </div>
+            <div class="barrier-cards-grid" id="downsideBarriersGrid">
+              <!-- Populated by JS -->
+            </div>
+          </div>
+
+          <!-- Custom Barrier Calculator -->
+          <div class="custom-barrier-box">
+            <div style="font-size: 0.78rem; font-weight: 600; color: var(--text-secondary);">
+              Simulasi Target Harga Kustom ($):
+            </div>
+            <div class="custom-barrier-inputs">
+              <input type="number" step="any" id="inputCustomBarrier" class="input-field"
+                placeholder="Masukkan harga (contoh: 2350)">
+              <button class="btn btn-secondary btn-sm" id="btnSimulateCustomBarrier">Hitung Peluang</button>
+            </div>
+            <div id="customBarrierResult"
+              style="font-size: 0.78rem; font-family: var(--font-mono); color: var(--color-cyan); display: none;"></div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Forecast Trajectories Table Preview & Export Hub -->
+    <section class="table-card">
+      <div class="chart-header">
+        <div class="chart-title">
+          <span>Data Trajectory & Interval Kepercayaan</span>
+        </div>
+        <div style="display: flex; gap: 0.6rem;">
+          <button class="btn btn-secondary btn-sm" id="btnExportCsv">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+              <polyline points="7 10 12 15 17 10"></polyline>
+              <line x1="12" y1="15" x2="12" y2="3"></line>
+            </svg>
+            Export CSV
+          </button>
+          <button class="btn btn-secondary btn-sm" id="btnExportJson">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+              <polyline points="14 2 14 8 20 8"></polyline>
+              <line x1="16" y1="13" x2="8" y2="13"></line>
+              <line x1="16" y1="17" x2="8" y2="17"></line>
+            </svg>
+            Export JSON
+          </button>
+        </div>
+      </div>
+
+      <div class="table-responsive">
+        <table class="data-table" id="forecastDataTable">
+          <thead>
+            <tr>
+              <th>Waktu Proyeksi</th>
+              <th>M6 Best Ensemble</th>
+              <th>CI 50% Bawah</th>
+              <th>CI 50% Atas</th>
+              <th>CI 80% Bawah</th>
+              <th>CI 80% Atas</th>
+              <th>CI 95% Bawah</th>
+              <th>CI 95% Atas</th>
+            </tr>
+          </thead>
+          <tbody id="forecastDataTableBody">
+            <!-- Populated by JS -->
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+  </main>
+
+  <!-- Upload Modal -->
+  <div class="modal-backdrop" id="uploadModal">
+    <div class="modal-window">
+      <div class="modal-header">
+        <div class="modal-title">Unggah Dataset JSON OHLCV</div>
+        <button class="modal-close-btn" id="btnCloseUpload">✕</button>
+      </div>
+
+      <div class="dropzone" id="dropzone">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+          <polyline points="17 8 12 3 7 8"></polyline>
+          <line x1="12" y1="3" x2="12" y2="15"></line>
+        </svg>
+        <p style="font-weight: 600; font-size: 0.9rem; margin-bottom: 0.25rem;">Tarik & lepaskan file JSON di sini</p>
+        <p style="font-size: 0.78rem; color: var(--text-muted);">atau klik untuk memilih file dari komputer</p>
+        <input type="file" id="fileInput" accept=".json" style="display: none;">
+      </div>
+
+      <div id="uploadFileInfo"
+        style="font-family: var(--font-mono); font-size: 0.8rem; color: var(--color-cyan); display: none;"></div>
+
+      <div style="display: flex; justify-content: flex-end; gap: 0.5rem;">
+        <button class="btn btn-secondary btn-sm" id="btnCancelUpload">Batal</button>
+        <button class="btn btn-primary btn-sm" id="btnSubmitUpload" disabled>Proses & Ramal</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Live Binance Fetch / Download Modal -->
+  <div class="modal-backdrop" id="liveFetchModal">
+    <div class="modal-window">
+      <div class="modal-header">
+        <div class="modal-title" style="display: flex; align-items: center; gap: 0.5rem;">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+            <polyline points="7 10 12 15 17 10"></polyline>
+            <line x1="12" y1="15" x2="12" y2="3"></line>
+          </svg>
+          Download Data Binance Futures
+        </div>
+        <button class="modal-close-btn" id="btnCloseLiveFetch">✕</button>
+      </div>
+
+      <div class="form-group">
+        <label class="form-label">Simbol Pasangan Kripto:</label>
+        <input type="text" id="liveSymbolInput" class="input-field" value="ETHUSDT"
+          placeholder="Contoh: ETHUSDT, BTCUSDT, SOLUSDT">
+      </div>
+
+      <div class="form-group">
+        <label class="form-label">Timeframe Lilin:</label>
+        <select id="liveTfInput" class="dataset-select" style="width: 100%;">
+          <option value="15m" selected>15 Menit (15m)</option>
+          <option value="1h">1 Jam (1h)</option>
+          <option value="4h">4 Jam (4h)</option>
+          <option value="1d">1 Hari (1d)</option>
+        </select>
+      </div>
+
+      <div class="form-group">
+        <label class="form-label">Rentang Periode Historis:</label>
+        <select id="liveDaysInput" class="dataset-select" style="width: 100%;">
+          <option value="1" selected>1 Hari Terakhir</option>
+          <option value="3">3 Hari Terakhir</option>
+          <option value="7">7 Hari Terakhir</option>
+          <option value="14">14 Hari Terakhir</option>
+          <option value="30">30 Hari Terakhir</option>
+          <option value="90">90 Hari Terakhir</option>
+        </select>
+      </div>
+
+      <!-- Live Filename Preview with Timestamp -->
+      <div class="form-group" style="margin-bottom: 0.75rem;">
+        <label class="form-label" style="display: flex; justify-content: space-between; align-items: center;">
+          <span>Target Nama File Download:</span>
+          <span style="color: var(--color-cyan); font-size: 0.7rem; font-weight: normal;">(Auto Timestamp)</span>
+        </label>
+        <div
+          style="background: rgba(0, 0, 0, 0.4); border: 1px solid var(--border-medium); border-radius: var(--radius-sm); padding: 0.55rem 0.75rem; font-family: var(--font-mono); font-size: 0.78rem; color: var(--color-cyan); word-break: break-all; display: flex; align-items: center; gap: 0.5rem;">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+            <polyline points="14 2 14 8 20 8"></polyline>
+            <line x1="16" y1="13" x2="8" y2="13"></line>
+            <line x1="16" y1="17" x2="8" y2="17"></line>
+            <polyline points="10 9 9 9 8 9"></polyline>
+          </svg>
+          <span id="liveDownloadPreview">ETHUSDT_15m_1d_YYYYMMDD_HHMMSS.json</span>
+        </div>
+      </div>
+
+      <div style="display: flex; justify-content: flex-end; gap: 0.5rem; flex-wrap: wrap; margin-top: 0.25rem;">
+        <button class="btn btn-secondary btn-sm" id="btnCancelLiveFetch">Batal</button>
+        <button class="btn btn-secondary btn-sm" id="btnDownloadJsonOnly"
+          style="border-color: rgba(56, 189, 248, 0.4); color: var(--color-cyan);">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+            <polyline points="7 10 12 15 17 10"></polyline>
+            <line x1="12" y1="15" x2="12" y2="3"></line>
+          </svg>
+          Download JSON ke Local
+        </button>
+        <button class="btn btn-primary btn-sm" id="btnSubmitLiveFetch">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <polygon points="5 3 19 12 5 21 5 3"></polygon>
+          </svg>
+          Download & Ramalkan
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Loading Overlay -->
+  <div class="loading-overlay" id="loadingOverlay">
+    <div class="spinner"></div>
+    <div class="loading-text" id="loadingMessage">Memproses Model Kuantitatif...</div>
+  </div>
+
+  <!-- Toast Notification Container -->
+  <div class="toast-container" id="toastContainer"></div>
+
+  <!-- Main Application Logic -->
+  <script src="/static/app.js?v=2.0.3"></script>
+</body>
+
+</html>

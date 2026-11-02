@@ -1,58 +1,33 @@
-# ⚡ Crypto Market Data Collector (Free Tier)
+# ⚡ Crypto Predictor System
 
-Sistem pengumpul data pasar cryptocurrency historis berbasis Python yang mengintegrasikan data **OHLCV**, **Indikator Teknikal (RSI, MACD, EMA)**, serta data derivatif (**Funding Rate** & **Open Interest**).
-
-Data diekspor dalam format **Raw JSON** terstruktur yang siap digunakan untuk backtesting, analisis kuantitatif, machine learning, atau visualisasi TradingView.
-
----
-
-## 🌟 Fitur Utama
-
-1. **Aset Fleksibel**: Mendukung koin utama (`BTC`, `ETH`, `SOL`, `BNB`) maupun altcoin populer lainnya (`DOGE`, `SUI`, `XRP`, `ADA`, `PEPE`, dsb). Otomatis menormalisasi input (misal `btc` -> `BTCUSDT`).
-2. **Timeframe Sesuai Kebutuhan**: Pilihan interval `15m`, `4h`, dan `1d`.
-3. **Periode Historis 3 Bulan (90 Hari)**: Otomatis membagi permintaan dengan sistem pagination cerdas.
-4. **Data Lengkap yang Dikumpulkan**:
-   - **OHLCV**: Open, High, Low, Close, Volume (Base & Quote USD), Trades Count.
-   - **RSI (14)**: Dihitung menggunakan *Wilder's Smoothing (RMA)* standar TradingView.
-   - **MACD (12, 26, 9)**: MACD Line, Signal Line, dan Histogram.
-   - **EMA (Exponential Moving Average)**: EMA 20, EMA 50, dan EMA 200.
-   - **Funding Rate**: Timestamp settlement, rate persentase, dan mark price.
-   - **Open Interest**: Total kontrak/koin terbuka & nilai nominal dalam USD.
-5. **Warm-up Lookback Buffer**: Mengambil 200 candle ekstra di awal periode secara otomatis agar perhitungan RSI dan EMA 200 di hari pertama periode 90 hari sudah stabil dan tidak bernilai `null` (zero distortion).
-6. **Built-in DNS-over-HTTPS (DoH)**: Mengatasi pemblokiran DNS / Internet Positif ISP di Indonesia (Indosat, Telkomsel, XL, dsb) secara otomatis menggunakan Cloudflare/Google DoH tanpa memerlukan VPN pihak ketiga.
-7. **Free Tier API (100% Gratis & Tanpa API Key)**:
-   - **Binance Futures API** (`fapi.binance.com`): Likuiditas tertinggi dunia, pagination cepat (hingga 1.500 candle per call).
-   - **Bybit Futures API** (`api.bybit.com`): Mendukung riwayat Open Interest penuh 90+ hari.
-8. **Interactive CLI & Web Dashboard**: Disertai mode wizard interaktif di terminal dan Web Dashboard modern berbasis TradingView Lightweight Charts.
+Sistem terstruktur dan modular untuk analisis kuantitatif dan prediksi pasar cryptocurrency multi-metode dengan antarmuka web interaktif (TradingView-style charts, GARCH volatility cones, & Monte Carlo barrier simulator).
 
 ---
 
 ## 📁 Struktur Direktori
 
 ```text
-market-data-collector/
-├── data/                       # Direktori hasil ekspor data (JSON & CSV)
+crypto-predictor/
+├── data/                            # Dataset historis JSON (OHLCV, funding rate, open interest)
+│   ├── ETHUSDT_15m_1d.json          # Contoh dataset 15m (1 hari = 96 candles)
+│   └── BTCUSDT_1h_2d.json           # Contoh dataset 1 jam (2 hari = 48 candles)
 ├── src/
-│   ├── collectors/             # Modul pengumpul API
-│   │   ├── base.py             # Interface & data merger
-│   │   ├── binance.py          # Binance USD-M Futures collector
-│   │   └── bybit.py            # Bybit v5 Linear Futures collector
-│   ├── indicators/             # Kalkulator indikator teknikal
-│   │   └── calculator.py       # RSI, MACD, EMA 20/50/200
-│   ├── network/                # Jaringan & anti-blocking
-│   │   └── doh.py              # DNS-over-HTTPS resolver
-│   ├── storage/                # Serialisasi & ekspor file
-│   │   └── exporter.py         # Format JSON & CSV
-│   ├── web/                    # Dashboard visualisasi interaktif
-│   │   ├── index.html
-│   │   ├── app.js
-│   │   └── style.css
-│   └── config.py               # Konfigurasi sistem
-├── tests/
-│   └── test_collector.py       # Unit test validasi indikator & API
-├── main.py                     # Entry point CLI
-├── run.sh                      # Shell script runner
-├── requirements.txt            # Dependensi Python
+│   ├── collector/                   # Sub-fitur 1: Market Data Collector Binance Futures
+│   │   ├── binance.py               # Binance Futures API client & DoH resolver
+│   │   └── __init__.py
+│   └── web_server.py                # Server FastAPI & REST API untuk antarmuka web
+├── web/                             # Sub-fitur 2: Web Dashboard Interaktif
+│   ├── index.html                   # HTML5 layout dengan dark glassmorphism
+│   ├── style.css                    # Vanilla CSS design system modern
+│   └── app.js                       # Canvas chart engine, HUD, & live data fetcher
+├── tests/                           # Unit & integration tests
+│   ├── test_collector.py
+│   ├── test_forecast_engine.py
+│   └── test_web_server.py
+├── crypto_forecast_engine.py        # Core Engine: 6-stage quantitative forecasting
+├── main.py                          # Entry point CLI (collect, forecast, web)
+├── requirements.txt                 # Dependensi Python
+├── Makefile                         # Shortcut perintah kerja
 └── README.md
 ```
 
@@ -60,12 +35,14 @@ market-data-collector/
 
 ## 🚀 Panduan Penggunaan
 
-### 1. Instalasi Lingkungan
-Pastikan Python 3.10+ terpasang:
+### 1. Instalasi Environment
+
+Pastikan Python 3.10+ terpasang, lalu siapkan virtual environment:
+
 ```bash
-# Menggunakan run.sh (otomatis membuat .venv dan menginstal dependencies)
-./run.sh --help
+make setup
 ```
+
 Atau manual:
 ```bash
 python3 -m venv .venv
@@ -75,151 +52,83 @@ pip install -r requirements.txt
 
 ---
 
-### 1. Manajemen Service Menggunakan Makefile (Direkomendasikan)
+### 2. Antarmuka Web Interaktif (Web Dashboard)
 
-Tersedia [`Makefile`](file:///home/iamyourdre/Development/iamyourdre/crypto/market-data-collector/Makefile) lengkap untuk mengontrol seluruh alur kerja:
+Untuk menjalankan antarmuka web interaktif dengan visualisasi chart candlestick, trajectory proyeksi, GARCH confidence cones, serta simulator barrier Monte Carlo:
 
 ```bash
-# 1. Setup otomatis virtual environment & dependencies
-make setup
+make web
+# atau
+python main.py web --port 8000
+```
 
-# 2. Menjalankan CLI wizard interaktif pengumpul data
-make run
+Buka peramban di: **http://127.0.0.1:8000**
 
-# 3. Mengumpulkan data langsung dengan parameter cepat
-make collect SYMBOL=BTC TF=15m DAYS=90 SOURCE=binance
-make collect SYMBOL=SOL TF=4h DAYS=90 SOURCE=bybit CSV=1
+#### Fitur Web Dashboard:
+- **Interactive Multi-Method Chart**: Grafik candlestick historis + proyeksi masa depan dengan pembagi zona waktu ("NOW").
+- **5 Base Models + M6 Ensemble**:
+  - `M1`: Holt-Winters Damped Trend
+  - `M2`: Spectral Fourier Harmonic FFT
+  - `M3`: Dual-State Kalman Filter + OU Equilibrium
+  - `M4`: ARX-Ridge Exogenous Multi-Horizon
+  - `M5`: Non-Parametric Weighted k-NN Analog Trajectory
+  - `M6`: Best Simplex-Optimized Ensemble
+- **GARCH(1,1) Volatility Cones**: Pita interval kepercayaan 50%, 80%, dan 95%.
+- **First-Passage Barrier Probability Matrix**: Probabilitas sentuh target upside (+0.5% s/d +5%) dan downside support (-0.5% s/d -5%) berbasis 10.000 simulasi Student-t Monte Carlo.
+- **Kalkulator Barrier Kustom**: Input target harga arbitrer (contoh: `$2,350`) dan hitung probabilitasnya seketika.
+- **Sub-Charts Terpadu**: RSI-14, MACD, Order Flow CVD (Cumulative Volume Delta), & Open Interest.
+- **Live Binance Data Fetcher**: Tarik data fresh secara live dari Binance Futures untuk koin apa pun (ETH, BTC, SOL, dll.) dan langsung jalankan peramalan.
+- **Export Data**: Unduh trajectory hasil ramalan ke CSV atau ringkasan JSON.
 
-# 4. Manajemen Web Dashboard Service (Background Daemon)
-make start     # Menjalankan Web Dashboard di background (port 8080)
-make status    # Mengecek status service (Running / Stopped, PID, URL)
-make logs      # Melihat log service secara real-time
-make stop      # Menghentikan service
-make restart   # Restart service
+---
 
-# 5. Testing & Cleanup
-make test      # Menjalankan unit tests
-make clean     # Membersihkan cache & temporary files
+### 3. Peramalan Kuantitatif via CLI (`forecast`)
+
+Jalankan engine peramalan langsung pada file dataset JSON:
+
+```bash
+# Peramalan default pada ETHUSDT 15m (1 hari)
+python main.py forecast --input data/ETHUSDT_15m_1d.json --horizon 48
+
+# Menggunakan target Makefile
+make forecast FILE=data/ETHUSDT_15m_1d.json HORIZON=48
+```
+
+Output:
+- `forecast_trajectories.csv`: Proyeksi harga per langkah waktu beserta batas bawah/atas CI.
+- `forecast_summary.json`: Bobot model ensemble, metrik backtest (RMSE, MAE, MAPE, Directional Accuracy), dan probabilitas barrier Monte Carlo.
+
+---
+
+### 4. Kolektor Data Pasar Historis (`collect`)
+
+Ambil data candlestick OHLCV, Funding Rate, dan Open Interest dari Binance Futures:
+
+```bash
+# Contoh: ETHUSDT timeframe 15m selama 1 hari
+python main.py collect -s ETH -t 15m -d 1
+
+# Atau via Makefile
+make collect SYMBOL=ETH TF=15m DAYS=1
 ```
 
 ---
 
-### 2. Mode Web Dashboard Interaktif
+### 5. Menjalankan Unit Tests
 
-Setelah menjalankan `make start`, dashboard langsung aktif di **`http://localhost:8080`**.
-
-Fitur dashboard:
-- **Dataset Selector Dropdown**: Otomatis mendeteksi semua file JSON yang ada di folder `data/` dan dapat berganti koin/timeframe secara instan.
-- **Chart Candlestick**: Tersinkronisasi dengan EMA 20, 50, 200 & Volume.
-- **Sub-chart RSI (14)**: Dengan batas overbought (70) dan oversold (30).
-- **Sub-chart MACD (12, 26, 9)**: Dengan batang histogram warna dinamis (hijau/merah).
-- **Sub-chart Open Interest & Funding Rate**: Menampilkan tren likuiditas kontrak derivatif.
-- **Tab Raw JSON Data**: Dengan fitur pencarian instan dan tombol copy ke clipboard.
-- **Upload / Drag & Drop**: Bisa memuat file JSON lokal secara langsung.
-
-Hentikan service kapan saja dengan:
 ```bash
-make stop
+make test
+# atau
+python -m unittest discover tests
 ```
 
 ---
 
-## 📊 Struktur Format JSON Output
+## 🔬 Metodologi Kuantitatif
 
-File JSON yang dihasilkan (`data/<SYMBOL>_<TF>_<SOURCE>_<DAYS>d.json`) memiliki format terstruktur:
-
-```json
-{
-  "metadata": {
-    "symbol": "BTCUSDT",
-    "exchange": "binance",
-    "timeframe": "4h",
-    "period_days": 90,
-    "start_time": "2026-08-03T00:00:00Z",
-    "end_time": "2026-11-01T06:00:00Z",
-    "total_candles": 540,
-    "total_funding_events": 270,
-    "total_oi_records": 174,
-    "indicators_config": {
-      "rsi_period": 14,
-      "macd": { "fast": 12, "slow": 26, "signal": 9 },
-      "ema_periods": [20, 50, 200]
-    },
-    "summary_stats": {
-      "start_price": 64320.5,
-      "latest_price": 77983.2,
-      "highest_price": 87385.1,
-      "lowest_price": 62268.2,
-      "price_change_pct": 21.24,
-      "total_volume": 1284592.4,
-      "latest_rsi": 43.69,
-      "latest_funding_rate": 0.0001,
-      "latest_open_interest": 96888.21
-    },
-    "generated_at": "2026-11-01T07:00:00Z"
-  },
-  "data": [
-    {
-      "timestamp": 1785744000000,
-      "datetime": "2026-08-03T08:00:00Z",
-      "open": 64250.0,
-      "high": 64800.0,
-      "low": 64100.0,
-      "close": 64650.5,
-      "volume": 14210.5,
-      "quote_volume": 915820430.2,
-      "trades_count": 314205,
-      "indicators": {
-        "rsi_14": 52.84,
-        "macd": {
-          "line": 124.5,
-          "signal": 118.2,
-          "hist": 6.3
-        },
-        "ema_20": 64100.2,
-        "ema_50": 63850.4,
-        "ema_200": 62900.1
-      },
-      "derivatives": {
-        "funding_rate": 0.0001,
-        "funding_settled": 0.0001,
-        "open_interest": 93229.44,
-        "open_interest_usd": 6027329100.0
-      }
-    }
-  ],
-  "raw_series": {
-    "funding_rates": [
-      {
-        "timestamp": 1785744000000,
-        "datetime": "2026-08-03T08:00:00Z",
-        "funding_rate": 0.0001,
-        "mark_price": 64650.0
-      }
-    ],
-    "open_interest": [
-      {
-        "timestamp": 1785744000000,
-        "datetime": "2026-08-03T08:00:00Z",
-        "open_interest": 93229.44,
-        "open_interest_usd": 6027329100.0
-      }
-    ]
-  }
-}
-```
-
----
-
-## 🧪 Menjalankan Pengujian (Testing)
-
-Proyek dilengkapi unit test yang memvalidasi keakuratan matematis indikator RSI, MACD, EMA serta koneksi live API:
-
-```bash
-python3 -m unittest tests/test_collector.py
-```
-Hasil uji:
-- Verifikasi formula RSI Wilder's Smoothing (RMA) dan batasan `0 <= RSI <= 100`.
-- Verifikasi formula MACD (`Histogram = Line - Signal`).
-- Verifikasi EMA urutan tren (`EMA 20 > EMA 50 > EMA 200` pada steady uptrend).
-- Live API connectivity test untuk Binance & Bybit.
+1. **Stage 1: Normalisasi Skema & Imputasi Indikator**: Secara otomatis menghitung indikator teknikal (EMA 20/50/200, RSI 14, MACD) secara kausal jika tidak tersedia dalam dataset mentah.
+2. **Stage 2: Feature Engineering Eksogen**: 18 fitur teknikal kausal, termasuk CVD order flow, rasio volume, Bollinger Bands Z-score, dan harmonik diurnal 24 jam.
+3. **Stage 3: 5 Model Peramalan Lintas Paradigma**: Menggabungkan smoothing parametrik, spectral FFT bandpass, filter Kalman status ganda, regresi ridge multi-langkah, dan analog non-parametrik k-NN.
+4. **Stage 4: Validasi Walk-Forward & Optimasi Simplex**: Pembobotan dinamis berbasis akurasi arah (Directional Accuracy) dan RMSE out-of-sample yang adaptif terhadap panjang data.
+5. **Stage 5: Conditional Volatility GARCH(1,1)**: Memodelkan heteroskedastisitas bersyarat dan memproyeksikan kerucut dispersi sub-difusif.
+6. **Stage 6: Barrier Simulator Student-t Monte Carlo**: 10.000 jalur inovasi fat-tailed untuk mengestimasi peluang first-passage hitting price level.

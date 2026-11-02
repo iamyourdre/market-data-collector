@@ -1,22 +1,14 @@
 """
-Unit and Integration Tests for Crypto Market Data Collector.
+Unit and Integration Tests for Binance Market Data Collector Sub-feature.
 """
 
 import unittest
-import numpy as np
-import pandas as pd
+from datetime import datetime, timezone
 
-from src.config import CollectorConfig, normalize_symbol
-from src.indicators.calculator import calculate_rsi, calculate_macd, calculate_ema, compute_all_indicators
-from src.collectors.binance import BinanceFuturesCollector
-from src.collectors.bybit import BybitFuturesCollector
-from src.network.doh import enable_doh
+from src.collector import BinanceCollector, normalize_symbol, resolve_doh
 
 
-class TestMarketDataCollector(unittest.TestCase):
-
-    def setUp(self):
-        enable_doh()
+class TestBinanceCollector(unittest.TestCase):
 
     def test_symbol_normalization(self):
         self.assertEqual(normalize_symbol("btc"), "BTCUSDT")
@@ -25,75 +17,72 @@ class TestMarketDataCollector(unittest.TestCase):
         self.assertEqual(normalize_symbol("DOGE"), "DOGEUSDT")
         self.assertEqual(normalize_symbol("BTCUSD"), "BTCUSD")
 
-    def test_rsi_bounds_and_validity(self):
-        # Generate monotonic uptrend and downtrend
-        uptrend = pd.Series([100.0 + i * 2.0 for i in range(50)])
-        rsi_up = calculate_rsi(uptrend, period=14)
-        self.assertTrue((rsi_up.dropna() >= 0).all() and (rsi_up.dropna() <= 100).all())
-        # In strong continuous uptrend, RSI should be high (>70)
-        self.assertGreater(rsi_up.iloc[-1], 70.0)
+    def test_doh_resolution(self):
+        ips = resolve_doh("fapi.binance.com")
+        self.assertIsInstance(ips, list)
+        self.assertGreater(len(ips), 0, "DoH should return at least 1 IP address for fapi.binance.com")
 
-        downtrend = pd.Series([200.0 - i * 2.0 for i in range(50)])
-        rsi_down = calculate_rsi(downtrend, period=14)
-        self.assertTrue((rsi_down.dropna() >= 0).all() and (rsi_down.dropna() <= 100).all())
-        # In strong continuous downtrend, RSI should be low (<30)
-        self.assertLess(rsi_down.iloc[-1], 30.0)
+    def test_merge_derivatives(self):
+        collector = BinanceCollector(use_doh=False)
 
-    def test_macd_calculation(self):
-        prices = pd.Series([100 + (i % 10) * 2 for i in range(60)], dtype=float)
-        macd_df = calculate_macd(prices, fast=12, slow=26, signal=9)
-        self.assertIn("macd", macd_df.columns)
-        self.assertIn("macd_signal", macd_df.columns)
-        self.assertIn("macd_hist", macd_df.columns)
-        # Verify hist = macd - signal
-        diff = macd_df["macd"] - macd_df["macd_signal"]
-        np.testing.assert_allclose(macd_df["macd_hist"].values, diff.values)
+        candles = [
+            {
+                "timestamp": 1000,
+                "close_time": 1999,
+                "open": 100.0,
+                "high": 105.0,
+                "low": 99.0,
+                "close": 102.0,
+                "volume": 10.0,
+            },
+            {
+                "timestamp": 2000,
+                "close_time": 2999,
+                "open": 102.0,
+                "high": 108.0,
+                "low": 101.0,
+                "close": 106.0,
+                "volume": 12.0,
+            },
+        ]
 
-    def test_ema_calculation(self):
-        prices = pd.Series([50.0 + i for i in range(250)], dtype=float)
-        ema_df = calculate_ema(prices, periods=[20, 50, 200])
-        self.assertIn("ema_20", ema_df.columns)
-        self.assertIn("ema_50", ema_df.columns)
-        self.assertIn("ema_200", ema_df.columns)
-        # In steady uptrend, EMA 20 > EMA 50 > EMA 200
-        self.assertGreater(ema_df["ema_20"].iloc[-1], ema_df["ema_50"].iloc[-1])
-        self.assertGreater(ema_df["ema_50"].iloc[-1], ema_df["ema_200"].iloc[-1])
+        funding_rates = [
+            {"timestamp": 500, "funding_rate": 0.0001, "mark_price": 100.0},
+            {"timestamp": 2500, "funding_rate": 0.0002, "mark_price": 105.0},
+        ]
 
-    def test_live_binance_collector_quick(self):
-        """Test live collection of a short 2-day period to verify API connectivity and merge."""
-        collector = BinanceFuturesCollector()
-        cfg = CollectorConfig(
-            symbol="BTCUSDT",
-            timeframe="1d",
-            days=3,
-            source="binance",
-            warmup_candles=5,
-        )
-        result = collector.collect(cfg)
-        self.assertFalse(result.df_merged.empty)
-        self.assertIn("close", result.df_merged.columns)
-        self.assertIn("rsi_14", result.df_merged.columns)
-        self.assertIn("macd_line", result.df_merged.columns)
-        self.assertIn("ema_20", result.df_merged.columns)
-        self.assertGreaterEqual(len(result.df_merged), 2)
-        print(f"\nBinance quick test collected {len(result.df_merged)} daily candles successfully.")
+        open_interests = [
+            {"timestamp": 1200, "open_interest": 500.0, "open_interest_usd": 50000.0},
+            {"timestamp": 2200, "open_interest": 600.0, "open_interest_usd": 63600.0},
+        ]
 
-    def test_live_bybit_collector_quick(self):
-        """Test live Bybit collection for a short 2-day period."""
-        collector = BybitFuturesCollector()
-        cfg = CollectorConfig(
-            symbol="ETHUSDT",
-            timeframe="1d",
-            days=3,
-            source="bybit",
-            warmup_candles=5,
-        )
-        result = collector.collect(cfg)
-        self.assertFalse(result.df_merged.empty)
-        self.assertIn("close", result.df_merged.columns)
-        self.assertIn("rsi_14", result.df_merged.columns)
-        self.assertGreaterEqual(len(result.df_merged), 2)
-        print(f"\nBybit quick test collected {len(result.df_merged)} daily candles successfully.")
+        merged = collector.merge_derivatives(candles, funding_rates, open_interests)
+
+        # Candle 0 checks
+        self.assertEqual(merged[0]["funding_rate"], 0.0001)
+        self.assertIsNone(merged[0]["funding_settled"])
+        self.assertEqual(merged[0]["open_interest"], 500.0)
+
+        # Candle 1 checks (funding settlement happened at 2500, inside [2000, 2999])
+        self.assertEqual(merged[1]["funding_settled"], 0.0002)
+        self.assertEqual(merged[1]["open_interest"], 600.0)
+
+    def test_live_binance_quick_collection(self):
+        """Fetch 1 day of BTC 1h data to ensure live Binance API connectivity."""
+        collector = BinanceCollector()
+        result = collector.collect(symbol="BTC", timeframe="1h", days=1)
+
+        self.assertIn("metadata", result)
+        self.assertIn("data", result)
+        self.assertEqual(result["metadata"]["symbol"], "BTCUSDT")
+        self.assertGreaterEqual(result["metadata"]["total_candles"], 20)
+
+        first_candle = result["data"][0]
+        self.assertIn("open", first_candle)
+        self.assertIn("close", first_candle)
+        self.assertIn("volume", first_candle)
+        self.assertIn("open_interest", first_candle)
+        self.assertIn("funding_rate", first_candle)
 
 
 if __name__ == "__main__":

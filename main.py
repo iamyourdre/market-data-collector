@@ -1,264 +1,158 @@
 #!/usr/bin/env python3
 """
-Crypto Market Data Collector CLI.
-Collects OHLCV, RSI, MACD, EMA, Volume, Funding Rate, and Open Interest.
+Crypto Predictor System - Main Entry Point.
+Provides unified CLI for data collection, quantitative forecasting, and web dashboard.
 """
 
 import argparse
-import http.server
-import json
-import logging
-import os
-from pathlib import Path
-import socketserver
 import sys
-import webbrowser
 
-# Enable DoH early to prevent DNS hijacking
-from src.network.doh import enable_doh, disable_doh
-from src.config import (
-    CollectorConfig,
-    SUPPORTED_TIMEFRAMES,
-    SUPPORTED_SOURCES,
-    POPULAR_SYMBOLS,
-    normalize_symbol,
-)
-from src.collectors.binance import BinanceFuturesCollector
-from src.collectors.bybit import BybitFuturesCollector
-from src.storage.exporter import export_data
-
-from rich.console import Console
-from rich.panel import Panel
-from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn, TimeElapsedColumn
-from rich.table import Table
-from rich.prompt import Prompt, Confirm
-
-console = Console()
-logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
+from src.collector import setup_collector_cli_args, run_collector_cli
 
 
-def print_banner():
-    banner = """
-  [bold cyan]╔═══════════════════════════════════════════════════════════════╗[/bold cyan]
-  [bold cyan]║[/bold cyan]       [bold yellow]⚡ CRYPTO MARKET DATA COLLECTOR[/bold yellow] (Free Tier)          [bold cyan]║[/bold cyan]
-  [bold cyan]║[/bold cyan]  [dim]OHLCV • RSI • MACD • EMA • Volume • Funding Rate • Open Int[/dim]  [bold cyan]║[/bold cyan]
-  [bold cyan]╚═══════════════════════════════════════════════════════════════╝[/bold cyan]
-"""
-    console.print(banner)
-
-
-def run_collection(config: CollectorConfig, output_path: str = None) -> dict:
-    """Execute data collection workflow with rich progress tracking."""
-    if config.enable_doh:
-        enable_doh()
-
-    # Select collector
-    if config.source.lower() == "binance":
-        collector = BinanceFuturesCollector()
-    elif config.source.lower() == "bybit":
-        collector = BybitFuturesCollector()
-    else:
-        raise ValueError(f"Unsupported exchange source: {config.source}")
-
-    console.print(
-        f"\n[bold green]► Starting Data Collection[/bold green] for [bold yellow]{config.symbol}[/bold yellow] "
-        f"on [bold magenta]{config.source.upper()}[/bold magenta] | Timeframe: [bold cyan]{config.timeframe}[/bold cyan] | Period: [bold]{config.days} days[/bold]"
+def setup_forecast_cli_args(parser: argparse.ArgumentParser):
+    parser.add_argument(
+        "--input",
+        "-i",
+        type=str,
+        default="data/ETHUSDT_15m_1d.json",
+        help="Path file dataset JSON (contoh: data/ETHUSDT_15m_1d.json)",
+    )
+    parser.add_argument(
+        "--horizon",
+        "-H",
+        type=int,
+        default=48,
+        help="Horizon peramalan dalam langkah lilin (default: 48)",
+    )
+    parser.add_argument(
+        "--mc-sims",
+        type=int,
+        default=10000,
+        help="Jumlah simulasi Monte Carlo Student-t (default: 10000)",
+    )
+    parser.add_argument(
+        "--out-csv",
+        type=str,
+        default="forecast_trajectories.csv",
+        help="Path file output CSV trajectory",
+    )
+    parser.add_argument(
+        "--out-json",
+        type=str,
+        default="forecast_summary.json",
+        help="Path file output JSON summary",
     )
 
-    with Progress(
-        SpinnerColumn(),
-        TextColumn("[bold blue]{task.description}"),
-        BarColumn(),
-        TextColumn("[progress.percentage]{task.percentage:>3.0f}%"),
-        TimeElapsedColumn(),
-        console=console,
-    ) as progress:
-        task = progress.add_task("Initializing...", total=100)
 
-        def progress_cb(description: str, ratio: float):
-            progress.update(task, description=description, completed=int(ratio * 100))
-
-        result = collector.collect(config, progress_callback=progress_cb)
-
-    # Export to files
-    saved = export_data(result, output_path=output_path, export_csv=config.export_csv)
-
-    # Display Summary Table
-    display_summary(result, saved)
-    return saved
-
-
-def display_summary(result, saved_paths: dict):
-    """Print an attractive summary table of collected data."""
-    df = result.df_merged
-    cfg = result.config
-
-    table = Table(title=f"📊 Collection Summary: {result.symbol} ({result.exchange.upper()})", show_header=True)
-    table.add_column("Metric", style="cyan", no_wrap=True)
-    table.add_column("Value", style="green")
-
-    table.add_row("Timeframe", result.timeframe)
-    table.add_row("Historical Range", f"{result.start_time.strftime('%Y-%m-%d')} to {result.end_time.strftime('%Y-%m-%d')} ({cfg.days} days)")
-    table.add_row("Total Candlesticks", f"{len(df):,}")
-    table.add_row("Highest Price", f"${df['high'].max():,.2f}")
-    table.add_row("Lowest Price", f"${df['low'].min():,.2f}")
-    table.add_row("Latest Close", f"${df['close'].iloc[-1]:,.2f}")
-
-    if f"rsi_{cfg.indicators.rsi_period}" in df.columns:
-        latest_rsi = df[f"rsi_{cfg.indicators.rsi_period}"].iloc[-1]
-        table.add_row(f"Latest RSI({cfg.indicators.rsi_period})", f"{latest_rsi:.2f}")
-
-    if "macd_line" in df.columns:
-        latest_macd = df["macd_line"].iloc[-1]
-        latest_sig = df["macd_signal"].iloc[-1]
-        table.add_row("Latest MACD", f"Line: {latest_macd:.2f} | Signal: {latest_sig:.2f}")
-
-    for p in cfg.indicators.ema_periods:
-        if f"ema_{p}" in df.columns:
-            table.add_row(f"EMA {p}", f"${df[f'ema_{p}'].iloc[-1]:,.2f}")
-
-    table.add_row("Total Funding Events", f"{len(result.raw_funding_rates):,}")
-    if result.raw_funding_rates:
-        latest_fr = result.raw_funding_rates[-1]["funding_rate"]
-        table.add_row("Latest Funding Rate", f"{latest_fr * 100:+.4f}%")
-
-    table.add_row("Total Open Interest Points", f"{len(result.raw_open_interest):,}")
-    if result.raw_open_interest:
-        latest_oi = result.raw_open_interest[-1]["open_interest"]
-        table.add_row("Latest Open Interest", f"{latest_oi:,.2f} contracts/coins")
-
-    console.print("\n", table)
-
-    # Output file paths
-    file_info = "\n".join([f"• [bold]{k.upper()}:[/bold] [yellow]{v}[/yellow] ({os.path.getsize(v) / 1024:.1f} KB)" for k, v in saved_paths.items()])
-    console.print(Panel(file_info, title="💾 Saved Files", border_style="cyan"))
-
-
-def interactive_wizard():
-    """Interactive CLI prompt when no arguments are provided."""
-    print_banner()
-
-    console.print("[bold]Pilih atau ketik koin cryptocurrency yang ingin dikumpulkan:[/bold]")
-    console.print("[dim]Contoh populer: BTC, ETH, SOL, DOGE, BNB, XRP, SUI, ADA[/dim]")
-    symbol_input = Prompt.ask("Masukkan Koin", default="BTC")
-    symbol = normalize_symbol(symbol_input)
-
-    console.print("\n[bold]Pilih Timeframe:[/bold]")
-    timeframe = Prompt.ask("Timeframe", choices=["15m", "4h", "1d"], default="15m")
-
-    console.print("\n[bold]Pilih Sumber Data (Free Tier API):[/bold]")
-    console.print("  [bold cyan]1. Binance Futures[/bold cyan] (Likuiditas tertinggi, OHLCV + Funding Rate 90h + OI 30h)")
-    console.print("  [bold cyan]2. Bybit Futures[/bold cyan]   (Full 90 hari untuk OHLCV, Funding Rate & Open Interest)")
-    source_choice = Prompt.ask("Pilih sumber", choices=["1", "2", "binance", "bybit"], default="1")
-    source = "binance" if source_choice in ["1", "binance"] else "bybit"
-
-    days_str = Prompt.ask("\nPeriode Historis (hari)", default="90")
-    days = int(days_str)
-
-    export_csv = Confirm.ask("\nEkspor juga ke format CSV selain JSON?", default=False)
-
-    config = CollectorConfig(
-        symbol=symbol,
-        timeframe=timeframe,
-        days=days,
-        source=source,
-        export_csv=export_csv,
+def setup_web_cli_args(parser: argparse.ArgumentParser):
+    parser.add_argument(
+        "--host",
+        type=str,
+        default="127.0.0.1",
+        help="Host listener web server (default: 127.0.0.1)",
     )
-
-    run_collection(config)
-
-
-def start_web_server(port: int = 8080, open_browser: bool = True):
-    """Launch a lightweight web server for the interactive dashboard."""
-    base_dir = Path(__file__).parent.resolve()
-    web_dir = base_dir / "src" / "web"
-    data_dir = base_dir / "data"
-
-    class CustomHandler(http.server.SimpleHTTPRequestHandler):
-        def do_GET(self):
-            if self.path == "/api/datasets":
-                files = []
-                if data_dir.exists():
-                    for f in sorted(data_dir.glob("*.json"), key=os.path.getmtime, reverse=True):
-                        files.append({"filename": f.name, "path": f"/data/{f.name}", "size_kb": round(f.stat().st_size / 1024, 1)})
-                payload = json.dumps(files).encode("utf-8")
-                self.send_response(200)
-                self.send_header("Content-Type", "application/json")
-                self.send_header("Content-Length", str(len(payload)))
-                self.end_headers()
-                self.wfile.write(payload)
-                return
-            return super().do_GET()
-
-        def translate_path(self, path):
-            # Clean query string
-            path = path.split("?")[0].split("#")[0]
-            if path in ["/", "/index.html"]:
-                return str(web_dir / "index.html")
-            elif path.startswith("/data/"):
-                rel_path = path[len("/data/"):]
-                return str(data_dir / rel_path)
-            elif (web_dir / path.lstrip("/")).exists():
-                return str(web_dir / path.lstrip("/"))
-            return str(base_dir / path.lstrip("/"))
-
-    socketserver.TCPServer.allow_reuse_address = True
-    console.print(f"\n[bold green]🚀 Web Dashboard aktif di:[/bold green] [bold cyan]http://localhost:{port}[/bold cyan]")
-    console.print("[dim]Tekan Ctrl+C untuk berhenti.[/dim]\n")
-
-    if open_browser:
-        try:
-            webbrowser.open(f"http://localhost:{port}")
-        except Exception:
-            pass
-
-    with socketserver.TCPServer(("", port), CustomHandler) as httpd:
-        try:
-            httpd.serve_forever()
-        except KeyboardInterrupt:
-            console.print("\n[yellow]Web server dihentikan.[/yellow]")
+    parser.add_argument(
+        "--port",
+        "-p",
+        type=int,
+        default=8000,
+        help="Port listener web server (default: 8000)",
+    )
+    parser.add_argument(
+        "--reload",
+        action="store_true",
+        help="Aktifkan auto-reload server FastAPI",
+    )
 
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Crypto Market Data Collector (OHLCV, RSI, MACD, EMA, Funding Rate, Open Interest)"
+        description="Crypto Predictor System - Platform Analisis & Prediksi Pasar Kripto Kuantitatif",
+        epilog="Gunakan 'python main.py <subcommand> --help' untuk bantuan sub-fitur tertentu.",
     )
-    parser.add_argument("-s", "--symbol", type=str, help="Coin symbol (e.g. BTC, ETH, SOL, BTCUSDT)")
-    parser.add_argument("-t", "--timeframe", type=str, choices=SUPPORTED_TIMEFRAMES, help="Timeframe (15m, 4h, 1d)")
-    parser.add_argument("-d", "--days", type=int, default=90, help="Historical period in days (default: 90)")
-    parser.add_argument("--source", type=str, choices=SUPPORTED_SOURCES, default="binance", help="Data source exchange (default: binance)")
-    parser.add_argument("-o", "--output", type=str, help="Custom output JSON file path")
-    parser.add_argument("--csv", action="store_true", help="Also export to CSV format")
-    parser.add_argument("--no-doh", action="store_true", help="Disable built-in DNS-over-HTTPS resolver")
-    parser.add_argument("--serve", action="store_true", help="Start local visual dashboard web server")
-    parser.add_argument("--port", type=int, default=8080, help="Port for web dashboard server (default: 8080)")
-    parser.add_argument("--no-browser", action="store_true", help="Do not automatically open web browser")
+    subparsers = parser.add_subparsers(
+        title="Sub-fitur yang tersedia",
+        dest="subcommand",
+        help="Pilih sub-fitur untuk dijalankan",
+    )
+
+    # Sub-fitur 1: Data Collector
+    collect_parser = subparsers.add_parser(
+        "collect",
+        help="Ambil data pasar historis Binance Futures ke format JSON (OHLCV, Funding Rate, Open Interest)",
+    )
+    setup_collector_cli_args(collect_parser)
+
+    # Sub-fitur 2: Forecast Engine
+    forecast_parser = subparsers.add_parser(
+        "forecast",
+        help="Jalankan peramalan kuantitatif multi-metode (Holt, Fourier, Kalman, ARX-Ridge, kNN, GARCH)",
+    )
+    setup_forecast_cli_args(forecast_parser)
+
+    # Sub-fitur 3: Web Dashboard Server
+    web_parser = subparsers.add_parser(
+        "web",
+        help="Jalankan antarmuka dashboard web interaktif (TradingView chart, probabilitas barrier, live fetch)",
+    )
+    setup_web_cli_args(web_parser)
 
     args = parser.parse_args()
 
-    if args.serve:
-        start_web_server(port=args.port, open_browser=not args.no_browser)
-        return
+    if not args.subcommand:
+        parser.print_help()
+        sys.exit(0)
 
-    # If no parameters provided, run interactive wizard
-    if not args.symbol and not args.timeframe:
-        interactive_wizard()
-        return
+    try:
+        if args.subcommand == "collect":
+            run_collector_cli(args)
+        elif args.subcommand == "forecast":
+            from crypto_forecast_engine import ForecastConfig, CryptoForecastEngine
+            import json
 
-    print_banner()
-    symbol = normalize_symbol(args.symbol or "BTCUSDT")
-    timeframe = args.timeframe or "15m"
+            print(f"🚀 Memulai Quantitative Forecast Engine...")
+            print(f"📂 Dataset Input: {args.input}")
+            print(f"⏱️  Horizon Steps: {args.horizon} | Monte Carlo: {args.mc_sims:,} paths")
+            cfg = ForecastConfig(horizon_steps=args.horizon, mc_simulations=args.mc_sims)
+            engine = CryptoForecastEngine(cfg)
+            df = engine.load_json(args.input)
+            print(f"   -> Terbaca {len(df)} candles ({df['datetime'].iloc[0]} -> {df['datetime'].iloc[-1]})")
+            print(f"   -> Harga Penutupan Terakhir: ${df['close'].iloc[-1]:,.2f}")
 
-    config = CollectorConfig(
-        symbol=symbol,
-        timeframe=timeframe,
-        days=args.days,
-        source=args.source,
-        export_csv=args.csv,
-        enable_doh=not args.no_doh,
-    )
+            engine.build_features()
+            metrics = engine.run_walk_forward_backtest()
+            print("\n📊 Bobot Ensemble & Akurasi Walk-Forward:")
+            for m_name, w in engine.ensemble_weights.items():
+                print(f"   • {m_name:20s}: {w * 100:5.2f}% | Path RMSE: ${metrics[m_name]['RMSE_Path']:,.2f} | DA: {metrics[m_name]['DA_Avg']:.2f}%")
+            ens_m = metrics["M6_Best_Ensemble"]
+            print(f"   🎯 Ensemble Terbaik -> Path RMSE: ${ens_m['RMSE_Path']:,.2f} | Avg DA: {ens_m['DA_Avg']:.2f}%")
 
-    run_collection(config, output_path=args.output)
+            df_fc = engine.generate_forecasts()
+            barriers = engine.simulate_barrier_probabilities(df_fc)
+
+            df_fc.to_csv(args.out_csv, index=False)
+            with open(args.out_json, "w", encoding="utf-8") as f:
+                json.dump({
+                    "metadata": engine.metadata,
+                    "ensemble_weights": engine.ensemble_weights,
+                    "garch_params": engine.garch_params,
+                    "backtest_metrics": metrics,
+                    "barrier_probabilities": barriers,
+                }, f, indent=2)
+            print(f"\n✅ Selesai! Trajectory disimpan ke: {args.out_csv}")
+            print(f"✅ Ringkasan disimpan ke: {args.out_json}")
+
+        elif args.subcommand == "web":
+            from src.web_server import run_server
+            run_server(host=args.host, port=args.port, reload=args.reload)
+
+    except KeyboardInterrupt:
+        print("\n[!] Dibatalkan oleh pengguna.", file=sys.stderr)
+        sys.exit(130)
+    except Exception as e:
+        print(f"\n[❌ ERROR]: {e}", file=sys.stderr)
+        sys.exit(1)
 
 
 if __name__ == "__main__":
