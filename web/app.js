@@ -104,6 +104,18 @@ const elements = {
   liveTfInput: document.getElementById("liveTfInput"),
   liveDaysInput: document.getElementById("liveDaysInput"),
   liveDownloadPreview: document.getElementById("liveDownloadPreview"),
+  btnOpenReplay: document.getElementById("btnOpenReplay"),
+  replayModal: document.getElementById("replayModal"),
+  btnCloseReplay: document.getElementById("btnCloseReplay"),
+  btnCancelReplay: document.getElementById("btnCancelReplay"),
+  btnSubmitReplay: document.getElementById("btnSubmitReplay"),
+  replayCurrentDataset: document.getElementById("replayCurrentDataset"),
+  replayBackInput: document.getElementById("replayBackInput"),
+  replayBanner: document.getElementById("replayBanner"),
+  replayBannerTitle: document.getElementById("replayBannerTitle"),
+  replayBannerDetails: document.getElementById("replayBannerDetails"),
+  replayBannerMatch: document.getElementById("replayBannerMatch"),
+  btnCloseReplayBanner: document.getElementById("btnCloseReplayBanner"),
   loadingOverlay: document.getElementById("loadingOverlay"),
   loadingMessage: document.getElementById("loadingMessage"),
   toastContainer: document.getElementById("toastContainer"),
@@ -247,6 +259,32 @@ function setupEventListeners() {
   elements.liveTfInput.addEventListener("change", updateLiveDownloadPreview);
   elements.liveDaysInput.addEventListener("change", updateLiveDownloadPreview);
 
+  // Replay Modal & Actions
+  if (elements.btnOpenReplay) {
+    elements.btnOpenReplay.addEventListener("click", () => {
+      if (elements.replayCurrentDataset) {
+        elements.replayCurrentDataset.textContent = state.selectedPreset || "None";
+      }
+      elements.replayModal.classList.add("open");
+    });
+  }
+  if (elements.btnCloseReplay) elements.btnCloseReplay.addEventListener("click", () => elements.replayModal.classList.remove("open"));
+  if (elements.btnCancelReplay) elements.btnCancelReplay.addEventListener("click", () => elements.replayModal.classList.remove("open"));
+  if (elements.btnSubmitReplay) {
+    elements.btnSubmitReplay.addEventListener("click", () => {
+      const back = parseInt(elements.replayBackInput.value, 10) || 24;
+      elements.replayModal.classList.remove("open");
+      runReplay(back);
+    });
+  }
+  if (elements.btnCloseReplayBanner) {
+    elements.btnCloseReplayBanner.addEventListener("click", () => {
+      if (elements.replayBanner) elements.replayBanner.style.display = "none";
+      state.replayMode = false;
+      runForecast();
+    });
+  }
+
   // Window Resize
   window.addEventListener("resize", () => {
     resizeCanvas(elements.forecastCanvas);
@@ -305,11 +343,71 @@ async function runForecast() {
 
     updateDashboard();
     renderCharts();
+    if (elements.replayBanner) elements.replayBanner.style.display = "none";
+    state.replayMode = false;
     showToast("Peramalan selesai & model berhasil diselaraskan!", "success");
   } catch (err) {
     showToast(`Error: ${err.message}`, "error");
   } finally {
     hideLoading();
+  }
+}
+
+async function runReplay(backCandles = 24) {
+  showLoading(`Menjalankan pengujian waktu mundur (${backCandles} lilin)...`);
+  try {
+    const url = `/api/forecast/replay/${encodeURIComponent(state.selectedPreset)}?back=${backCandles}&mc_sims=5000`;
+    const res = await fetch(url);
+    if (!res.ok) {
+      let errDetail = "Replay gagal";
+      try {
+        const errJson = await res.json();
+        errDetail = errJson.detail || errDetail;
+      } catch (_) {}
+      throw new Error(errDetail);
+    }
+    const data = await res.json();
+    state.activeData = data;
+    state.replayMode = true;
+    state.replaySummary = data.summary;
+
+    const totalPoints = (data.historical_data?.length || 0) + (data.actual_forward_data?.length || data.forecast_data?.length || 0);
+    state.viewRange = {
+      startIdx: 0,
+      endIdx: totalPoints - 1,
+      totalPoints: totalPoints,
+    };
+
+    updateDashboard();
+    renderCharts();
+    renderReplayBanner(data.summary);
+    const matchStr = data.summary.direction_match ? "Arah Sesuai ✅" : "Arah Berbeda ❌";
+    showToast(`Uji waktu mundur selesai! ${matchStr} (MAPE: ${data.summary.mape}%)`, "success");
+  } catch (err) {
+    showToast(`Error Replay: ${err.message}`, "error");
+  } finally {
+    hideLoading();
+  }
+}
+
+function renderReplayBanner(s) {
+  if (!elements.replayBanner) return;
+  elements.replayBanner.style.display = "flex";
+  elements.replayBannerTitle.innerHTML = `<span>⏱️ Mode Waktu Mundur: <b>${s.symbol}</b> (${s.timeframe}) — Mundur ${s.back_candles} Lilin (${s.horizon_hours} Jam)</span>`;
+  elements.replayBannerDetails.innerHTML = `
+    Titik Cutoff: <b>${s.cutoff_datetime}</b> ($${s.cutoff_price.toLocaleString()}) &rarr; Realitas: <b>${s.final_actual_datetime}</b><br>
+    Aktual: <b>$${s.final_actual_price.toLocaleString()}</b> (${s.actual_change_pct > 0 ? "+" : ""}${s.actual_change_pct}%) [${s.actual_direction}] | 
+    Prediksi: <b>$${s.final_predicted_price.toLocaleString()}</b> (${s.predicted_change_pct > 0 ? "+" : ""}${s.predicted_change_pct}%) [${s.predicted_direction}] | 
+    RMSE: <b>$${s.rmse.toLocaleString()}</b> | MAPE: <b>${s.mape}%</b> | Akurasi Arah: <b>${s.step_directional_accuracy}%</b>
+  `;
+  if (s.direction_match) {
+    elements.replayBannerMatch.style.background = "rgba(16, 185, 129, 0.2)";
+    elements.replayBannerMatch.style.color = "#34d399";
+    elements.replayBannerMatch.textContent = "Arah Sesuai ✅";
+  } else {
+    elements.replayBannerMatch.style.background = "rgba(239, 68, 68, 0.2)";
+    elements.replayBannerMatch.style.color = "#f87171";
+    elements.replayBannerMatch.textContent = "Arah Berbeda ❌";
   }
 }
 
@@ -1180,6 +1278,32 @@ function renderMainChart() {
       }
     }
     ctx.stroke();
+    ctx.shadowBlur = 0;
+  }
+
+  // 6b. Replay Mode: Actual Realized Forward Path (Dashed Emerald Green)
+  const actFwd = state.activeData.actual_forward_data;
+  if (actFwd && actFwd.length > 0) {
+    ctx.beginPath();
+    ctx.strokeStyle = "#10b981";
+    ctx.lineWidth = 2.4;
+    ctx.setLineDash([4, 4]);
+
+    ctx.shadowColor = "rgba(16, 185, 129, 0.4)";
+    ctx.shadowBlur = 6;
+
+    const startX = getX(nHist - 1);
+    const startY = getY(hist[nHist - 1].close);
+    ctx.moveTo(startX, startY);
+
+    for (let j = 0; j < actFwd.length; j++) {
+      const idx = nHist + j;
+      if (idx >= startIdx && idx <= endIdx) {
+        ctx.lineTo(getX(idx), getY(actFwd[j].close));
+      }
+    }
+    ctx.stroke();
+    ctx.setLineDash([]);
     ctx.shadowBlur = 0;
   }
 

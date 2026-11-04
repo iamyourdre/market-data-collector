@@ -19,7 +19,7 @@ Implements a 6-stage quantitative forecasting pipeline:
 import argparse
 import json
 from dataclasses import dataclass
-from typing import Dict, List, Optional, Union
+from typing import Any, Dict, List, Optional, Union
 import numpy as np
 import pandas as pd
 from scipy import optimize
@@ -883,6 +883,220 @@ def run_forecast_pipeline(
             "best_ensemble_da": round(backtest_metrics.get("M6_Best_Ensemble", {}).get("DA_Avg", 0.0), 2),
             "best_ensemble_rmse": round(backtest_metrics.get("M6_Best_Ensemble", {}).get("RMSE_Path", 0.0), 2),
         }
+    }
+
+
+def run_replay_pipeline(
+    source: Union[str, dict],
+    back_candles: int = 24,
+    horizon_steps: Optional[int] = None,
+    mc_simulations: int = 5000,
+    upside_barriers: Optional[List[float]] = None,
+    downside_barriers: Optional[List[float]] = None,
+) -> Dict[str, Any]:
+    """
+    Executes Out-of-Sample Historical Cutoff Replay Backtest.
+    Rewinds time by `back_candles`, trains engine strictly on data before cutoff,
+    generates forecast forward, and evaluates against actual future candles.
+    """
+    cfg_loader = ForecastConfig()
+    loader_engine = CryptoForecastEngine(cfg_loader)
+    df_full = loader_engine.load_json(source)
+    total_len = len(df_full)
+
+    min_train = 15 if total_len >= 25 else max(5, total_len // 2)
+    if back_candles < 1:
+        raise ValueError("back_candles harus minimal 1.")
+    if back_candles > total_len - min_train:
+        max_back = max(1, total_len - min_train)
+        raise ValueError(
+            f"back_candles ({back_candles}) terlalu besar untuk dataset berukuran {total_len} lilin. "
+            f"Maksimal mundur: {max_back} lilin agar tersisa minimal {min_train} lilin historis untuk pelatihan."
+        )
+
+    H = horizon_steps if horizon_steps is not None else back_candles
+    H = max(2, min(H, back_candles))
+
+    # Split dataset at cutoff
+    df_train = df_full.iloc[:-back_candles].copy().reset_index(drop=True)
+    end_slice = -back_candles + H
+    if end_slice < 0:
+        df_actual = df_full.iloc[-back_candles:end_slice].copy().reset_index(drop=True)
+    else:
+        df_actual = df_full.iloc[-back_candles:].copy().reset_index(drop=True)
+
+    cutoff_candle = df_train.iloc[-1]
+    p0 = float(cutoff_candle["close"])
+    cutoff_time = str(cutoff_candle["datetime"])
+
+    # Train and forecast only on past data
+    cfg = ForecastConfig(horizon_steps=H, mc_simulations=mc_simulations)
+    engine = CryptoForecastEngine(cfg)
+    engine.df = df_train
+    engine.metadata = dict(loader_engine.metadata)
+    engine.step_minutes = loader_engine.step_minutes
+
+    engine.build_features()
+    backtest_metrics = engine.run_walk_forward_backtest()
+    df_fc = engine.generate_forecasts()
+    barriers = engine.simulate_barrier_probabilities(
+        df_fc, upside_barriers=upside_barriers, downside_barriers=downside_barriers
+    )
+
+    pred_close = df_fc["M6_Best_Ensemble"].values[:H]
+    act_close = df_actual["close"].values[:H]
+    act_high = df_actual["high"].values[:H]
+    act_low = df_actual["low"].values[:H]
+
+    p_act_final = float(act_close[-1])
+    p_pred_final = float(pred_close[-1])
+
+    act_change_pct = ((p_act_final - p0) / p0) * 100.0
+    pred_change_pct = ((p_pred_final - p0) / p0) * 100.0
+
+    act_dir = "BULLISH" if act_change_pct > 0.1 else ("BEARISH" if act_change_pct < -0.1 else "NEUTRAL")
+    pred_dir = "BULLISH" if pred_change_pct > 0.1 else ("BEARISH" if pred_change_pct < -0.1 else "NEUTRAL")
+    direction_match = bool((p_act_final >= p0) == (p_pred_final >= p0))
+
+    # Error metrics
+    abs_errors = np.abs(pred_close - act_close)
+    pct_errors = (abs_errors / act_close) * 100.0
+
+    rmse = float(np.sqrt(np.mean((pred_close - act_close) ** 2)))
+    mae = float(np.mean(abs_errors))
+    mape = float(np.mean(pct_errors))
+    max_err = float(np.max(abs_errors))
+
+    # Step-by-step directional accuracy
+    step_da = float(np.mean((pred_close >= p0) == (act_close >= p0)) * 100.0)
+
+    # Within 80% CI check
+    ci80_lo = df_fc["ci_80_lower"].values[:H]
+    ci80_hi = df_fc["ci_80_upper"].values[:H]
+    pct_within_ci80 = float(np.mean((act_close >= ci80_lo) & (act_close <= ci80_hi)) * 100.0)
+
+    # Step records
+    comparison_steps = []
+    for i in range(H):
+        r_act = df_actual.iloc[i]
+        comparison_steps.append({
+            "step": i + 1,
+            "datetime": str(r_act["datetime"]),
+            "timestamp": int(r_act["timestamp"]),
+            "actual_open": round(float(r_act["open"]), 4),
+            "actual_high": round(float(r_act["high"]), 4),
+            "actual_low": round(float(r_act["low"]), 4),
+            "actual_close": round(float(r_act["close"]), 4),
+            "pred_close": round(float(pred_close[i]), 4),
+            "ci_80_lower": round(float(ci80_lo[i]), 4),
+            "ci_80_upper": round(float(ci80_hi[i]), 4),
+            "error_usd": round(float(abs_errors[i]), 4),
+            "error_pct": round(float(pct_errors[i]), 2),
+            "in_ci80": bool(ci80_lo[i] <= act_close[i] <= ci80_hi[i]),
+        })
+
+    # Historical records (for chart)
+    hist_records = []
+    for _, r in df_train.iterrows():
+        hist_records.append({
+            "timestamp": int(r["timestamp"]),
+            "datetime": str(r["datetime"]),
+            "open": round(float(r["open"]), 4),
+            "high": round(float(r["high"]), 4),
+            "low": round(float(r["low"]), 4),
+            "close": round(float(r["close"]), 4),
+            "volume": round(float(r["volume"]), 2),
+        })
+
+    # Forecast records
+    forecast_records = []
+    for _, r in df_fc.iterrows():
+        forecast_records.append({
+            "datetime": str(r["datetime"]),
+            "timestamp": int(r["timestamp"]),
+            "M6_Best_Ensemble": round(float(r["M6_Best_Ensemble"]), 4),
+            "ci_50_lower": round(float(r["ci_50_lower"]), 4),
+            "ci_50_upper": round(float(r["ci_50_upper"]), 4),
+            "ci_80_lower": round(float(r["ci_80_lower"]), 4),
+            "ci_80_upper": round(float(r["ci_80_upper"]), 4),
+            "ci_95_lower": round(float(r["ci_95_lower"]), 4),
+            "ci_95_upper": round(float(r["ci_95_upper"]), 4),
+        })
+
+    # Actual forward records (for chart overlay)
+    actual_forward_records = []
+    for _, r in df_actual.iterrows():
+        actual_forward_records.append({
+            "timestamp": int(r["timestamp"]),
+            "datetime": str(r["datetime"]),
+            "open": round(float(r["open"]), 4),
+            "high": round(float(r["high"]), 4),
+            "low": round(float(r["low"]), 4),
+            "close": round(float(r["close"]), 4),
+            "volume": round(float(r["volume"]), 2),
+        })
+
+    # Barrier hits verification
+    barrier_eval = {"upside": {}, "downside": {}}
+    max_high = float(np.max(act_high))
+    min_low = float(np.min(act_low))
+    for b_str, b_data in barriers.get("upside", {}).items():
+        b_val = float(b_str)
+        hit = bool(max_high >= b_val)
+        barrier_eval["upside"][b_str] = {
+            **b_data,
+            "actually_hit": hit,
+        }
+    for b_str, b_data in barriers.get("downside", {}).items():
+        b_val = float(b_str)
+        hit = bool(min_low <= b_val)
+        barrier_eval["downside"][b_str] = {
+            **b_data,
+            "actually_hit": hit,
+        }
+
+    meta = dict(loader_engine.metadata)
+    meta.update({
+        "symbol": meta.get("symbol", "UNKNOWN"),
+        "timeframe": meta.get("timeframe", f"{engine.step_minutes}m"),
+        "total_candles": total_len,
+        "back_candles": back_candles,
+        "step_minutes": engine.step_minutes,
+        "cutoff_datetime": cutoff_time,
+        "cutoff_price": p0,
+    })
+
+    return {
+        "metadata": meta,
+        "historical_data": hist_records,
+        "actual_forward_data": actual_forward_records,
+        "forecast_data": forecast_records,
+        "comparison_steps": comparison_steps,
+        "barrier_evaluation": barrier_eval,
+        "ensemble_weights": engine.ensemble_weights,
+        "backtest_metrics": backtest_metrics,
+        "summary": {
+            "symbol": meta["symbol"],
+            "timeframe": meta["timeframe"],
+            "cutoff_datetime": cutoff_time,
+            "cutoff_price": round(p0, 4),
+            "final_actual_datetime": str(df_actual["datetime"].iloc[-1]),
+            "final_actual_price": round(p_act_final, 4),
+            "final_predicted_price": round(p_pred_final, 4),
+            "actual_change_pct": round(act_change_pct, 2),
+            "predicted_change_pct": round(pred_change_pct, 2),
+            "actual_direction": act_dir,
+            "predicted_direction": pred_dir,
+            "direction_match": direction_match,
+            "rmse": round(rmse, 4),
+            "mae": round(mae, 4),
+            "mape": round(mape, 2),
+            "max_error_usd": round(max_err, 4),
+            "step_directional_accuracy": round(step_da, 1),
+            "pct_within_ci80": round(pct_within_ci80, 1),
+            "back_candles": back_candles,
+            "horizon_hours": round(H * engine.step_minutes / 60.0, 1),
+        },
     }
 
 

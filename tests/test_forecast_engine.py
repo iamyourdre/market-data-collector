@@ -12,6 +12,7 @@ from crypto_forecast_engine import (
     CryptoForecastEngine,
     ForecastConfig,
     run_forecast_pipeline,
+    run_replay_pipeline,
 )
 
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -101,6 +102,22 @@ class TestCryptoForecastEngine(unittest.TestCase):
         self.assertEqual(result["metadata"]["step_minutes"], 60)
         self.assertEqual(len(result["historical_data"]), 48)
         self.assertEqual(len(result["forecast_data"]), 12)
+
+    def test_replay_pipeline_execution(self):
+        """Test out-of-sample replay pipeline with customizable back candles."""
+        result = run_replay_pipeline(
+            source=str(ETH_JSON_PATH),
+            back_candles=16,
+            mc_simulations=1000,
+        )
+        self.assertIn("summary", result)
+        self.assertIn("comparison_steps", result)
+        self.assertIn("actual_forward_data", result)
+        self.assertEqual(len(result["comparison_steps"]), 16)
+        self.assertEqual(result["summary"]["back_candles"], 16)
+        self.assertIn("rmse", result["summary"])
+        self.assertIn("direction_match", result["summary"])
+        self.assertIsInstance(result["summary"]["direction_match"], bool)
 
 
 if __name__ == "__main__":

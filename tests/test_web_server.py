@@ -84,6 +84,18 @@ class TestWebServer(unittest.TestCase):
         self.assertIn("data", data)
         self.assertGreaterEqual(len(data["data"]), 90)
 
+    def test_forecast_replay_endpoint(self):
+        res = requests.get(
+            f"{SERVER_URL}/api/forecast/replay/ETHUSDT_15m_1d.json?back=16&mc_sims=1000",
+            timeout=8,
+        )
+        self.assertEqual(res.status_code, 200)
+        data = res.json()
+        self.assertIn("summary", data)
+        self.assertIn("comparison_steps", data)
+        self.assertEqual(len(data["comparison_steps"]), 16)
+        self.assertEqual(data["summary"]["back_candles"], 16)
+
 
 if __name__ == "__main__":
     unittest.main()

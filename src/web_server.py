@@ -22,6 +22,7 @@ from crypto_forecast_engine import (
     CryptoForecastEngine,
     ForecastConfig,
     run_forecast_pipeline,
+    run_replay_pipeline,
 )
 from src.collector.binance import BinanceCollector, normalize_symbol
 
@@ -132,6 +133,35 @@ def forecast_preset(
     except Exception as e:
         logger.error(f"Forecast failed for preset {filename}: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Forecast calculation failed: {str(e)}")
+
+
+@app.get("/api/forecast/replay/{filename}")
+def forecast_replay(
+    filename: str,
+    back: int = Query(24, ge=1, le=1000, description="Jumlah lilin mundur ke masa lalu untuk cutoff"),
+    horizon: Optional[int] = Query(None, ge=2, le=288, description="Horizon peramalan dari titik cutoff"),
+    mc_sims: int = Query(5000, ge=1000, le=50000),
+):
+    """Runs out-of-sample historical cutoff replay on a preset dataset in data/."""
+    file_path = DATA_DIR / filename
+    if not file_path.exists():
+        raise HTTPException(status_code=404, detail=f"File '{filename}' not found in data directory.")
+
+    try:
+        b_val = int(back.default) if hasattr(back, "default") else int(back)
+        h_val = (int(horizon.default) if horizon.default is not None else None) if hasattr(horizon, "default") else (int(horizon) if horizon is not None else None)
+        mc_val = int(mc_sims.default) if hasattr(mc_sims, "default") else int(mc_sims)
+
+        results = run_replay_pipeline(
+            source=str(file_path),
+            back_candles=b_val,
+            horizon_steps=h_val,
+            mc_simulations=mc_val,
+        )
+        return results
+    except Exception as e:
+        logger.error(f"Replay backtest failed for {filename}: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Replay calculation failed: {str(e)}")
 
 
 @app.post("/api/forecast/upload")
