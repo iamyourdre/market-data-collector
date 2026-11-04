@@ -61,6 +61,35 @@ def compute_macd(series: pd.Series, fast: int = 12, slow: int = 26, signal: int 
     return line, sig, hist
 
 
+def compute_adx(df: pd.DataFrame, period: int = 14) -> pd.Series:
+    """Computes causal Average Directional Index (ADX) for trend-strength detection."""
+    high = df["high"]
+    low = df["low"]
+    close = df["close"]
+
+    tr1 = high - low
+    tr2 = (high - close.shift(1)).abs()
+    tr3 = (low - close.shift(1)).abs()
+    tr = np.maximum(tr1, np.maximum(tr2, tr3)).fillna(0.0)
+
+    up_move = high - high.shift(1)
+    down_move = low.shift(1) - low
+
+    plus_dm = np.where((up_move > down_move) & (up_move > 0), up_move, 0.0)
+    minus_dm = np.where((down_move > up_move) & (down_move > 0), down_move, 0.0)
+
+    tr_smooth = pd.Series(tr).ewm(alpha=1.0 / period, min_periods=1, adjust=False).mean()
+    plus_dm_smooth = pd.Series(plus_dm).ewm(alpha=1.0 / period, min_periods=1, adjust=False).mean()
+    minus_dm_smooth = pd.Series(minus_dm).ewm(alpha=1.0 / period, min_periods=1, adjust=False).mean()
+
+    plus_di = 100.0 * (plus_dm_smooth / (tr_smooth + 1e-8))
+    minus_di = 100.0 * (minus_dm_smooth / (tr_smooth + 1e-8))
+
+    dx = 100.0 * ((plus_di - minus_di).abs() / (plus_di + minus_di + 1e-8))
+    adx = dx.ewm(alpha=1.0 / period, min_periods=1, adjust=False).mean()
+    return adx
+
+
 class CryptoForecastEngine:
     """End-to-end multi-method quantitative forecasting engine for crypto OHLCV data."""
 
@@ -69,12 +98,14 @@ class CryptoForecastEngine:
         "rsi_centered", "macd_norm", "bb_z", "bb_width",
         "dist_ema20", "dist_ema50", "dist_ema200",
         "ema_spread_20_50", "atr_pct", "vol_ratio", "cvd_16",
-        "sin_24h", "cos_24h", "funding_rate"
+        "sin_24h", "cos_24h", "funding_rate",
+        "adx_14", "squeeze_pressure"
     ]
 
     STATE_COLS: List[str] = [
         "ret_4", "ret_16", "ret_96", "rsi_centered", "macd_norm",
-        "bb_z", "dist_ema50", "dist_ema200", "atr_pct", "cvd_16"
+        "bb_z", "dist_ema50", "dist_ema200", "atr_pct", "cvd_16",
+        "adx_14"
     ]
 
     def __init__(self, config: Optional[ForecastConfig] = None):
@@ -257,6 +288,13 @@ class CryptoForecastEngine:
         df["sin_24h"] = np.sin(2.0 * np.pi * hour_frac / 24.0)
         df["cos_24h"] = np.cos(2.0 * np.pi * hour_frac / 24.0)
 
+        # Trend Strength & Derivatives Microstructure
+        df["adx_14"] = compute_adx(df, 14).fillna(20.0)
+        oi = df["open_interest"].ffill().bfill().fillna(0.0)
+        oi_mean = oi.rolling(16, min_periods=1).mean() + 1e-8
+        oi_delta_16 = oi.diff(16).fillna(0.0) / oi_mean
+        df["squeeze_pressure"] = (oi_delta_16 * df["funding_rate"] * 10000.0).fillna(0.0)
+
         # Sanitize feature columns
         for col in self.FEATURE_COLS:
             if col in df.columns:
@@ -264,6 +302,49 @@ class CryptoForecastEngine:
 
         self.df = df
         return df
+
+    @staticmethod
+    def detect_market_regime(sub_df: pd.DataFrame) -> Dict[str, Any]:
+        """
+        Detects macro and local market regimes:
+          - TRENDING_BULLISH: High ADX, EMA alignment bullish, positive price momentum
+          - TRENDING_BEARISH: High ADX, EMA alignment bearish, negative price momentum
+          - VOLATILE_EXPANSION: Expanding ATR, high volume ratio, breakout
+          - RANGING_CONSOLIDATION: Low ADX, narrow BB width, mean-reverting
+        """
+        last_row = sub_df.iloc[-1]
+        adx_val = float(last_row.get("adx_14", 20.0))
+        dist_ema50 = float(last_row.get("dist_ema50", 0.0))
+        ema_spread = float(last_row.get("ema_spread_20_50", 0.0))
+        bb_width = float(last_row.get("bb_width", 2.0))
+        vol_ratio = float(last_row.get("vol_ratio", 1.0))
+        atr_pct = float(last_row.get("atr_pct", 1.0))
+
+        med_atr = float(sub_df["atr_pct"].tail(40).median()) if "atr_pct" in sub_df else atr_pct
+        atr_expansion = atr_pct / (med_atr + 1e-8)
+
+        is_trending = (adx_val >= 22.0) or (abs(ema_spread) > 0.8)
+
+        if is_trending:
+            if dist_ema50 < -0.2 and ema_spread <= 0:
+                regime = "TRENDING_BEARISH"
+            elif dist_ema50 > 0.2 and ema_spread >= 0:
+                regime = "TRENDING_BULLISH"
+            else:
+                regime = "TRENDING_BEARISH" if dist_ema50 < 0 else "TRENDING_BULLISH"
+        elif atr_expansion > 1.6 and vol_ratio > 1.8:
+            regime = "VOLATILE_EXPANSION"
+        else:
+            regime = "RANGING_CONSOLIDATION"
+
+        return {
+            "regime": regime,
+            "adx": round(adx_val, 2),
+            "is_trending": is_trending,
+            "atr_expansion": round(atr_expansion, 2),
+            "dist_ema50": round(dist_ema50, 2),
+            "bb_width": round(bb_width, 2),
+        }
 
     # =========================================================================
     # STAGE 3: FIVE CROSS-PARADIGM BASE FORECASTING MODELS
@@ -373,13 +454,21 @@ class CryptoForecastEngine:
         y_slice = y[-vwap_win:]
         vwap_24h = np.sum(y_slice * v_slice) / (np.sum(v_slice) + 1e-8)
         eq_mean = 0.40 * vwap_24h + 0.35 * ema50 + 0.25 * ema200
-        theta = 0.025
+
+        # Regime-adaptive momentum decay & equilibrium pull rate
+        adx_val = float(sub_df["adx_14"].iloc[-1]) if "adx_14" in sub_df else 20.0
+        if adx_val >= 22.0:
+            vel_decay = 0.92
+            theta = 0.012
+        else:
+            vel_decay = 0.84
+            theta = 0.032
 
         preds = np.zeros(H)
         curr = y[-1]
         curr_vel = vel
         for h in range(H):
-            curr_vel *= 0.88
+            curr_vel *= vel_decay
             curr = curr + curr_vel + theta * (eq_mean - curr)
             preds[h] = curr
         return preds
@@ -416,8 +505,27 @@ class CryptoForecastEngine:
                 y_target = y_target[-1440:]
                 Z_train = Z_train[-1440:]
             try:
+                # Adaptive L2 regularization (split validation)
+                if len(Z_train) > 20:
+                    val_size = max(4, min(16, len(Z_train) // 5))
+                    Z_tr, Z_val = Z_train[:-val_size], Z_train[-val_size:]
+                    y_tr, y_val = y_target[:-val_size], y_target[-val_size:]
+                    best_lam = self.cfg.ridge_lambda
+                    best_mse = 1e18
+                    for lam in [50.0, 150.0, 300.0, 500.0]:
+                        try:
+                            w_c = np.linalg.solve(Z_tr.T @ Z_tr + lam * I_mat, Z_tr.T @ y_tr)
+                            mse_c = np.mean((y_val - Z_val @ w_c) ** 2)
+                            if mse_c < best_mse:
+                                best_mse = mse_c
+                                best_lam = lam
+                        except Exception:
+                            continue
+                else:
+                    best_lam = self.cfg.ridge_lambda
+
                 w = np.linalg.solve(
-                    Z_train.T @ Z_train + self.cfg.ridge_lambda * I_mat,
+                    Z_train.T @ Z_train + best_lam * I_mat,
                     Z_train.T @ y_target
                 )
                 pred_rets[s] = float(z_last @ w)
@@ -461,7 +569,7 @@ class CryptoForecastEngine:
             steps = np.arange(1, H + 1)
             return last_close * np.exp(ret_last * (steps / 8.0) * 0.5)
 
-        f_weights = np.array([1.0, 1.5, 1.5, 1.2, 1.2, 1.0, 1.5, 1.5, 0.8, 1.0])
+        f_weights = np.array([1.0, 1.5, 1.5, 1.2, 1.2, 1.0, 1.5, 1.5, 0.8, 1.0, 1.2])
         diffs = (Z[:n_valid] - z_query) * f_weights
         dists = np.sqrt(np.sum(diffs ** 2, axis=1))
 
@@ -564,15 +672,36 @@ class CryptoForecastEngine:
 
         eval_origins = list(range(start_idx, end_idx, stride))
 
+        # Detect market regime for Regime-Adaptive Dynamic Ensemble (RADE)
+        regime_info = self.detect_market_regime(self.df)
+        regime = regime_info["regime"]
+
         if len(eval_origins) < 2:
-            # Fallback for very small datasets
-            self.ensemble_weights = {
-                "M1_Holt_Damped": 0.12,
-                "M2_Fourier_Harmonic": 0.38,
-                "M3_Kalman_OU": 0.18,
-                "M4_ARX_Ridge": 0.12,
-                "M5_kNN_Analog": 0.20,
-            }
+            # Fallback for very small datasets conditioned on regime
+            if "TRENDING" in regime:
+                self.ensemble_weights = {
+                    "M1_Holt_Damped": 0.20,
+                    "M2_Fourier_Harmonic": 0.10,
+                    "M3_Kalman_OU": 0.38,
+                    "M4_ARX_Ridge": 0.22,
+                    "M5_kNN_Analog": 0.10,
+                }
+            elif regime == "VOLATILE_EXPANSION":
+                self.ensemble_weights = {
+                    "M1_Holt_Damped": 0.15,
+                    "M2_Fourier_Harmonic": 0.08,
+                    "M3_Kalman_OU": 0.42,
+                    "M4_ARX_Ridge": 0.25,
+                    "M5_kNN_Analog": 0.10,
+                }
+            else:
+                self.ensemble_weights = {
+                    "M1_Holt_Damped": 0.10,
+                    "M2_Fourier_Harmonic": 0.38,
+                    "M3_Kalman_OU": 0.20,
+                    "M4_ARX_Ridge": 0.12,
+                    "M5_kNN_Analog": 0.20,
+                }
             std_c = float(self.df["close"].std()) if len(self.df) > 1 else 10.0
             dummy_m = {
                 "RMSE_Path": float(std_c * 0.25),
@@ -611,12 +740,27 @@ class CryptoForecastEngine:
         best_score = 1e18
         opt_weights = np.ones(len(model_names)) / len(model_names)
 
-        for w1 in np.linspace(0.05, 0.25, 5):
-            for w2 in np.linspace(0.20, 0.55, 6):
-                for w3 in np.linspace(0.05, 0.25, 5):
-                    for w4 in np.linspace(0.05, 0.25, 5):
+        # Regime-Adaptive Dynamic Ensemble (RADE) weight spaces:
+        # w1: Holt, w2: Fourier, w3: Kalman, w4: ARX-Ridge, w5: kNN
+        if "TRENDING" in regime or regime == "VOLATILE_EXPANSION":
+            w1_vals = np.linspace(0.10, 0.25, 4)
+            w2_vals = np.linspace(0.05, 0.20, 4)  # Fourier dampened in strong trends
+            w3_vals = np.linspace(0.20, 0.50, 6)  # Kalman prioritized
+            w4_vals = np.linspace(0.15, 0.40, 5)  # ARX-Ridge prioritized
+            min_w5, max_w5 = 0.05, 0.25
+        else:
+            w1_vals = np.linspace(0.05, 0.20, 4)
+            w2_vals = np.linspace(0.20, 0.50, 6)  # Fourier prioritized in cycles
+            w3_vals = np.linspace(0.15, 0.35, 5)
+            w4_vals = np.linspace(0.05, 0.25, 4)
+            min_w5, max_w5 = 0.10, 0.35
+
+        for w1 in w1_vals:
+            for w2 in w2_vals:
+                for w3 in w3_vals:
+                    for w4 in w4_vals:
                         w5 = 1.0 - (w1 + w2 + w3 + w4)
-                        if w5 < 0.05 or w5 > 0.45:
+                        if w5 < min_w5 or w5 > max_w5:
                             continue
                         w_vec = np.array([w1, w2, w3, w4, w5])
                         ep = np.tensordot(P_stack, w_vec, axes=([2], [0]))
@@ -807,10 +951,14 @@ def run_forecast_pipeline(
     ens_final = float(df_fc["M6_Best_Ensemble"].iloc[-1])
     ret_pct = ((ens_final - last_close) / last_close) * 100.0
 
-    # Direction bias
-    if ret_pct > 0.4:
+    # Dynamic Deadband Threshold based on ATR
+    atr_pct_val = float(df_hist["atr_pct"].iloc[-1]) if "atr_pct" in df_hist else 1.0
+    tau_deadband = max(0.15, min(0.60, 0.25 * atr_pct_val))
+
+    # Direction bias with Deadband
+    if ret_pct > tau_deadband:
         direction = "BULLISH"
-    elif ret_pct < -0.4:
+    elif ret_pct < -tau_deadband:
         direction = "BEARISH"
     else:
         direction = "NEUTRAL"
@@ -879,6 +1027,8 @@ def run_forecast_pipeline(
             "last_close": last_close,
             "horizon_target": ens_final,
             "expected_return_pct": round(ret_pct, 2),
+            "tau_deadband": round(tau_deadband, 2),
+            "market_regime": engine.detect_market_regime(df_hist)["regime"],
             "horizon_hours": round(horizon_steps * engine.step_minutes / 60.0, 1),
             "best_ensemble_da": round(backtest_metrics.get("M6_Best_Ensemble", {}).get("DA_Avg", 0.0), 2),
             "best_ensemble_rmse": round(backtest_metrics.get("M6_Best_Ensemble", {}).get("RMSE_Path", 0.0), 2),
@@ -954,9 +1104,31 @@ def run_replay_pipeline(
     act_change_pct = ((p_act_final - p0) / p0) * 100.0
     pred_change_pct = ((p_pred_final - p0) / p0) * 100.0
 
-    act_dir = "BULLISH" if act_change_pct > 0.1 else ("BEARISH" if act_change_pct < -0.1 else "NEUTRAL")
-    pred_dir = "BULLISH" if pred_change_pct > 0.1 else ("BEARISH" if pred_change_pct < -0.1 else "NEUTRAL")
-    direction_match = bool((p_act_final >= p0) == (p_pred_final >= p0))
+    # Dynamic Deadband Threshold (tau) based on ATR
+    atr_pct_val = float(df_train["atr_pct"].iloc[-1]) if "atr_pct" in df_train else 1.0
+    tau_deadband = max(0.15, min(0.60, 0.25 * atr_pct_val))
+
+    # Direction Classification with Deadband Filter
+    if abs(act_change_pct) < tau_deadband:
+        act_dir = "NEUTRAL"
+    else:
+        act_dir = "BULLISH" if act_change_pct > 0 else "BEARISH"
+
+    if abs(pred_change_pct) < tau_deadband:
+        pred_dir = "NEUTRAL"
+    else:
+        pred_dir = "BULLISH" if pred_change_pct > 0 else "BEARISH"
+
+    strict_sign_match = bool((p_act_final >= p0) == (p_pred_final >= p0))
+
+    if act_dir == pred_dir:
+        direction_match = True
+    elif act_dir == "NEUTRAL" and abs(pred_change_pct) < 1.5 * tau_deadband:
+        direction_match = True
+    elif pred_dir == "NEUTRAL" and abs(act_change_pct) < 1.5 * tau_deadband:
+        direction_match = True
+    else:
+        direction_match = bool((p_act_final > p0 and p_pred_final > p0) or (p_act_final < p0 and p_pred_final < p0))
 
     # Error metrics
     abs_errors = np.abs(pred_close - act_close)
@@ -1088,6 +1260,9 @@ def run_replay_pipeline(
             "actual_direction": act_dir,
             "predicted_direction": pred_dir,
             "direction_match": direction_match,
+            "strict_sign_match": strict_sign_match,
+            "tau_deadband": round(tau_deadband, 2),
+            "market_regime": engine.detect_market_regime(df_train)["regime"],
             "rmse": round(rmse, 4),
             "mae": round(mae, 4),
             "mape": round(mape, 2),

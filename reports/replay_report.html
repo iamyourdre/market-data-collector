@@ -352,10 +352,10 @@
     <div class="kpi-card green">
       <div class="kpi-label">Directional Win Rate</div>
       <div class="kpi-val-row">
-        <div class="kpi-val" style="color: #059669;">64.44%</div>
-        <div class="kpi-delta neg">(-5.19%)</div>
+        <div class="kpi-val" style="color: #059669;">71.11%</div>
+        <div class="kpi-delta pos">(+1.48%)</div>
       </div>
-      <div class="kpi-sub">02 Nov: 69.63% | Tetap &gt;60% di atas random walk</div>
+      <div class="kpi-sub">02 Nov: 69.63% | Optimasi RADE & Deadband mendongkrak performa</div>
     </div>
     <div class="kpi-card cyan">
       <div class="kpi-label">Rata-Rata MAPE Error</div>
@@ -368,16 +368,16 @@
     <div class="kpi-card purple">
       <div class="kpi-label">Akurasi Langkah (Step DA)</div>
       <div class="kpi-val-row">
-        <div class="kpi-val" style="color: #7c3aed;">54.27%</div>
-        <div class="kpi-delta neg">(-5.50%)</div>
+        <div class="kpi-val" style="color: #7c3aed;">52.27%</div>
+        <div class="kpi-delta neg">(-7.50%)</div>
       </div>
       <div class="kpi-sub">02 Nov: 59.77% | Konsistensi arah lilin per lilin</div>
     </div>
     <div class="kpi-card amber">
       <div class="kpi-label">Dalam Corong GARCH 80%</div>
       <div class="kpi-val-row">
-        <div class="kpi-val" style="color: #d97706;">83.20%</div>
-        <div class="kpi-delta pos">(+1.52% / optimal)</div>
+        <div class="kpi-val" style="color: #d97706;">82.53%</div>
+        <div class="kpi-delta pos">(+0.85% / optimal)</div>
       </div>
       <div class="kpi-sub">02 Nov: 81.68% | Presisi kalibrasi volatilitas Monte Carlo</div>
     </div>
@@ -415,23 +415,23 @@
         <td><b>1h Daily Rolling</b></td>
         <td class="font-mono">99</td>
         <td><span class="badge badge-success">67.68%</span></td>
-        <td><span class="badge badge-cyan">61.62%</span></td>
-        <td><span class="delta-down">-6.06%</span></td>
+        <td><span class="badge badge-success">66.67%</span></td>
+        <td><span class="delta-flat">-1.01%</span></td>
         <td class="font-mono">1.41%</td>
         <td class="font-mono">1.34%</td>
         <td><span class="delta-up">-0.07% (lebih baik)</span></td>
-        <td>Meskipun win rate turun tipis akibat koreksi altcoin mendadak, akurasi harga rata-rata justru menguat</td>
+        <td>Akurasi arah stabil tinggi; alokasi RADE menekan whipsaw pembalikan tren</td>
       </tr>
       <tr>
         <td><b>4h Macro Swing</b></td>
         <td class="font-mono">24</td>
         <td><span class="badge badge-success">66.67%</span></td>
-        <td><span class="badge badge-cyan">62.50%</span></td>
-        <td><span class="delta-down">-4.17%</span></td>
+        <td><span class="badge badge-success">79.17%</span></td>
+        <td><span class="delta-up">+12.50%</span></td>
         <td class="font-mono">1.29%</td>
         <td class="font-mono">1.26%</td>
         <td><span class="delta-up">-0.03% (lebih baik)</span></td>
-        <td>Efektif menangkap swing multi-hari; window 48h mencatat win rate melonjak ke 83.33%</td>
+        <td><b>Melonjak tajam:</b> Adaptasi Kalman Filter + OU Equilibrium menangkap tren ayunan makro</td>
       </tr>
     </tbody>
   </table>
@@ -459,87 +459,87 @@
     <tbody>
       <tr>
         <td>🥇 <b>1</b></td>
-        <td><b>DOGEUSDT</b></td>
-        <td><span class="badge badge-success">77.78%</span></td>
-        <td><span class="badge badge-success">77.78%</span></td>
-        <td><span class="delta-flat">0.00%</span></td>
-        <td class="font-mono">1.22%</td>
-        <td class="font-mono">1.04%</td>
-        <td><span class="delta-up">-0.18%</span></td>
-        <td class="font-mono">82.87%</td>
-        <td>Paling konsisten di tier atas; deviasi harga menyusut ke 1.04%</td>
+        <td><b>SOLUSDT</b></td>
+        <td><span class="badge badge-cyan">66.67%</span></td>
+        <td><span class="badge badge-success">100.00%</span></td>
+        <td><span class="delta-up">+33.33%</span></td>
+        <td class="font-mono">1.15%</td>
+        <td class="font-mono">1.14%</td>
+        <td><span class="delta-up">-0.01%</span></td>
+        <td class="font-mono">86.11%</td>
+        <td><b>Sempurna:</b> 9 dari 9 skenario tertebak tepat arahnya dengan RADE</td>
       </tr>
       <tr>
         <td>🥈 <b>2</b></td>
-        <td><b>SOLUSDT</b></td>
-        <td><span class="badge badge-cyan">66.67%</span></td>
+        <td><b>DOGEUSDT</b></td>
         <td><span class="badge badge-success">77.78%</span></td>
+        <td><span class="badge badge-success">88.89%</span></td>
         <td><span class="delta-up">+11.11%</span></td>
-        <td class="font-mono">1.15%</td>
-        <td class="font-mono">1.20%</td>
-        <td><span class="delta-down">+0.05%</span></td>
-        <td class="font-mono">86.11%</td>
-        <td>Naik kelas ke Top Tier; tren breakdown $95 &rarr; $90 tertangkap sempurna</td>
+        <td class="font-mono">1.22%</td>
+        <td class="font-mono">1.03%</td>
+        <td><span class="delta-up">-0.19%</span></td>
+        <td class="font-mono">82.87%</td>
+        <td>Konsistensi top tier; deviasi harga menyusut ke 1.03%</td>
       </tr>
       <tr>
         <td>🥉 <b>3</b></td>
-        <td><b>LINKUSDT</b></td>
-        <td><span class="badge badge-cyan">66.67%</span></td>
+        <td><b>ADAUSDT</b></td>
         <td><span class="badge badge-success">77.78%</span></td>
-        <td><span class="delta-up">+11.11%</span></td>
-        <td class="font-mono">1.78%</td>
-        <td class="font-mono">1.60%</td>
-        <td><span class="delta-up">-0.18%</span></td>
-        <td class="font-mono">75.00%</td>
-        <td>Meningkat tajam; penurunan ke $11 tertangkap presisi oleh model ARX</td>
+        <td><span class="badge badge-success">77.78%</span></td>
+        <td><span class="delta-flat">0.00%</span></td>
+        <td class="font-mono">1.35%</td>
+        <td class="font-mono">1.36%</td>
+        <td><span class="delta-down">+0.01%</span></td>
+        <td class="font-mono">85.65%</td>
+        <td>Sangat stabil di level 77.8%; momentum breakdown tertangkap tajam</td>
       </tr>
       <tr>
         <td><b>4</b></td>
-        <td><b>ADAUSDT</b></td>
-        <td><span class="badge badge-success">77.78%</span></td>
+        <td><b>XRPUSDT</b></td>
+        <td><span class="badge badge-fail">55.56%</span></td>
         <td><span class="badge badge-cyan">66.67%</span></td>
-        <td><span class="delta-down">-11.11%</span></td>
-        <td class="font-mono">1.35%</td>
-        <td class="font-mono">1.34%</td>
-        <td><span class="delta-up">-0.01%</span></td>
-        <td class="font-mono">85.65%</td>
-        <td>Tetap kokoh di atas 66%; error harga stabil rendah di 1.34%</td>
+        <td><span class="delta-up">+11.11%</span></td>
+        <td class="font-mono">1.15%</td>
+        <td class="font-mono">1.11%</td>
+        <td><span class="delta-up">-0.04%</span></td>
+        <td class="font-mono">80.56%</td>
+        <td>Meningkat ke zona hijau berkat filter deadband</td>
       </tr>
       <tr>
         <td><b>5</b></td>
-        <td><b>AVAXUSDT</b></td>
-        <td><span class="badge badge-success">88.89%</span></td>
+        <td><b>LINKUSDT</b></td>
         <td><span class="badge badge-cyan">66.67%</span></td>
-        <td><span class="delta-down">-22.22%</span></td>
-        <td class="font-mono">1.60%</td>
-        <td class="font-mono">1.47%</td>
-        <td><span class="delta-up">-0.13%</span></td>
-        <td class="font-mono">78.70%</td>
-        <td>Normalisasi dari anomali tinggi 88.9%; error harga tetap membaik ke 1.47%</td>
+        <td><span class="badge badge-cyan">66.67%</span></td>
+        <td><span class="delta-flat">0.00%</span></td>
+        <td class="font-mono">1.78%</td>
+        <td class="font-mono">1.61%</td>
+        <td><span class="delta-up">-0.17%</span></td>
+        <td class="font-mono">75.00%</td>
+        <td>Error harga menyusut signifikan; responsif terhadap CVD</td>
       </tr>
       <tr>
         <td><b>6</b></td>
+        <td><b>SUIUSDT</b></td>
+        <td><span class="badge badge-cyan">66.67%</span></td>
+        <td><span class="badge badge-cyan">66.67%</span></td>
+        <td><span class="delta-flat">0.00%</span></td>
+        <td class="font-mono">1.42%</td>
+        <td class="font-mono">1.72%</td>
+        <td><span class="delta-down">+0.30%</span></td>
+        <td class="font-mono"><b>89.35%</b></td>
+        <td>Cakupan corong GARCH tertinggi (89.35%); pergerakan di dalam batas CI</td>
+      </tr>
+      <tr>
+        <td><b>7</b></td>
         <td><b>ETHUSDT</b></td>
         <td><span class="badge badge-success">77.78%</span></td>
         <td><span class="badge badge-fail">55.56%</span></td>
         <td><span class="delta-down">-22.22%</span></td>
         <td class="font-mono">0.94%</td>
-        <td class="font-mono"><b>0.92%</b></td>
-        <td><span class="delta-up">-0.02%</span></td>
+        <td class="font-mono"><b>0.90%</b></td>
+        <td><span class="delta-up">-0.04%</span></td>
         <td class="font-mono">82.41%</td>
-        <td>Error harga terendah kedua (&lt;1%); deadband sideways mengurangi skor arah</td>
-      </tr>
-      <tr>
-        <td><b>7</b></td>
-        <td><b>XRPUSDT</b></td>
-        <td><span class="badge badge-fail">55.56%</span></td>
-        <td><span class="badge badge-fail">55.56%</span></td>
-        <td><span class="delta-flat">0.00%</span></td>
-        <td class="font-mono">1.15%</td>
-        <td class="font-mono">1.08%</td>
-        <td><span class="delta-up">-0.07%</span></td>
-        <td class="font-mono">80.56%</td>
-        <td>Stabilitas netral; deviasi harga menyusut</td>
+        <td>Error harga terendah kedua (&lt;1%); deadband sideways mengurangi skor biner</td>
       </tr>
       <tr>
         <td><b>8</b></td>
@@ -548,46 +548,46 @@
         <td><span class="badge badge-fail">55.56%</span></td>
         <td><span class="delta-flat">0.00%</span></td>
         <td class="font-mono">0.95%</td>
-        <td class="font-mono">1.17%</td>
-        <td><span class="delta-down">+0.22%</span></td>
+        <td class="font-mono">1.09%</td>
+        <td><span class="delta-down">+0.14%</span></td>
         <td class="font-mono">84.26%</td>
         <td>Konsolidasi mendatar pada $685–$714; pergerakan mikro volatil</td>
       </tr>
       <tr>
         <td><b>9</b></td>
-        <td><b>SUIUSDT</b></td>
-        <td><span class="badge badge-cyan">66.67%</span></td>
+        <td><b>AVAXUSDT</b></td>
+        <td><span class="badge badge-success">88.89%</span></td>
         <td><span class="badge badge-fail">55.56%</span></td>
-        <td><span class="delta-down">-11.11%</span></td>
-        <td class="font-mono">1.42%</td>
-        <td class="font-mono">1.62%</td>
-        <td><span class="delta-down">+0.20%</span></td>
-        <td class="font-mono"><b>89.35%</b></td>
-        <td>Cakupan corong GARCH tertinggi (89.35%); pergerakan harga berada aman dalam CI</td>
+        <td><span class="delta-down">-33.33%</span></td>
+        <td class="font-mono">1.60%</td>
+        <td class="font-mono">1.52%</td>
+        <td><span class="delta-up">-0.08%</span></td>
+        <td class="font-mono">78.70%</td>
+        <td>Normalisasi siklus; error harga rata-rata tetap membaik ke 1.52%</td>
       </tr>
       <tr>
         <td><b>10</b></td>
+        <td><b>1000PEPEUSDT</b></td>
+        <td><span class="badge badge-success">77.78%</span></td>
+        <td><span class="badge badge-fail">55.56%</span></td>
+        <td><span class="delta-down">-22.22%</span></td>
+        <td class="font-mono">3.16%</td>
+        <td class="font-mono">2.57%</td>
+        <td><span class="delta-up">-0.59%</span></td>
+        <td class="font-mono">75.00%</td>
+        <td><b>Membaik dari 44% ke 56%:</b> Fitur squeeze pressure menekan kesalahan proyeksi</td>
+      </tr>
+      <tr>
+        <td><b>11</b></td>
         <td><b>BTCUSDT</b></td>
         <td><span class="badge badge-fail">33.33%</span></td>
         <td><span class="badge badge-amber">44.44%</span></td>
         <td><span class="delta-up">+11.11%</span></td>
         <td class="font-mono"><b>0.81%</b></td>
-        <td class="font-mono"><b>0.85%</b></td>
-        <td><span class="delta-down">+0.04%</span></td>
+        <td class="font-mono"><b>0.83%</b></td>
+        <td><span class="delta-down">+0.02%</span></td>
         <td class="font-mono">75.00%</td>
-        <td><b>Membaik tajam:</b> Keluar dari sideways $78k, tren penurunan menuju $75.8k terprediksi akurat</td>
-      </tr>
-      <tr>
-        <td><b>11</b></td>
-        <td><b>1000PEPEUSDT</b></td>
-        <td><span class="badge badge-success">77.78%</span></td>
-        <td><span class="badge badge-fail">44.44%</span></td>
-        <td><span class="delta-down">-33.33%</span></td>
-        <td class="font-mono">3.16%</td>
-        <td class="font-mono">2.57%</td>
-        <td><span class="delta-up">-0.59%</span></td>
-        <td class="font-mono">75.00%</td>
-        <td>Volatilitas meme coin de-korelasi dari BTC/ETH; terjadi pump & dump mendadak</td>
+        <td><b>Membaik:</b> Keluar dari sideways $78k, tren penurunan menuju $75.8k terprediksi akurat</td>
       </tr>
     </tbody>
   </table>

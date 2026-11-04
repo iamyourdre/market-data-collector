@@ -112,6 +112,9 @@ def main():
                     "actual_direction": s["actual_direction"],
                     "predicted_direction": s["predicted_direction"],
                     "direction_match": s["direction_match"],
+                    "strict_sign_match": s.get("strict_sign_match", s["direction_match"]),
+                    "market_regime": s.get("market_regime", "UNKNOWN"),
+                    "tau_deadband": s.get("tau_deadband", 0.25),
                     "rmse": s["rmse"],
                     "mae": s["mae"],
                     "mape": s["mape"],
@@ -159,6 +162,9 @@ def main():
                     "actual_direction": s["actual_direction"],
                     "predicted_direction": s["predicted_direction"],
                     "direction_match": s["direction_match"],
+                    "strict_sign_match": s.get("strict_sign_match", s["direction_match"]),
+                    "market_regime": s.get("market_regime", "UNKNOWN"),
+                    "tau_deadband": s.get("tau_deadband", 0.25),
                     "rmse": s["rmse"],
                     "mae": s["mae"],
                     "mape": s["mape"],
@@ -206,6 +212,9 @@ def main():
                     "actual_direction": s["actual_direction"],
                     "predicted_direction": s["predicted_direction"],
                     "direction_match": s["direction_match"],
+                    "strict_sign_match": s.get("strict_sign_match", s["direction_match"]),
+                    "market_regime": s.get("market_regime", "UNKNOWN"),
+                    "tau_deadband": s.get("tau_deadband", 0.25),
                     "rmse": s["rmse"],
                     "mae": s["mae"],
                     "mape": s["mape"],
@@ -239,12 +248,14 @@ def main():
 
     # Summary statistics
     win_rate = df_all["direction_match"].mean() * 100.0
+    strict_win = df_all["strict_sign_match"].mean() * 100.0 if "strict_sign_match" in df_all else win_rate
     avg_mape = df_all["mape"].mean()
     avg_step_da = df_all["step_da"].mean()
     avg_ci80 = df_all["pct_within_ci80"].mean()
 
     print("\n📈 RINGKASAN AGREGAT GLOBAL:")
-    print(f"  • Overall Directional Match (Win Rate) : {win_rate:.2f}%")
+    print(f"  • Directional Match (dengan Deadband)  : {win_rate:.2f}%")
+    print(f"  • Strict Binary Sign Match (Penuh)     : {strict_win:.2f}%")
     print(f"  • Rata-rata MAPE Error                 : {avg_mape:.2f}%")
     print(f"  • Rata-rata Step Directional Accuracy  : {avg_step_da:.2f}%")
     print(f"  • Rata-rata Realitas dalam CI 80%      : {avg_ci80:.2f}%")

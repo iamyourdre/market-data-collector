@@ -40,3 +40,5 @@ ENV/
 # Output files
 forecast_trajectories.csv
 forecast_summary.json
+
+data
