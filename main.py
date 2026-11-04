@@ -151,40 +151,77 @@ def main():
         if args.subcommand == "collect":
             run_collector_cli(args)
         elif args.subcommand == "forecast":
-            from crypto_forecast_engine import ForecastConfig, CryptoForecastEngine
+            from crypto_forecast_engine import run_forecast_pipeline
             import json
+            import pandas as pd
 
             print(f"🚀 Memulai Quantitative Forecast Engine...")
             print(f"📂 Dataset Input: {args.input}")
             print(f"⏱️  Horizon Steps: {args.horizon} | Monte Carlo: {args.mc_sims:,} paths")
-            cfg = ForecastConfig(horizon_steps=args.horizon, mc_simulations=args.mc_sims)
-            engine = CryptoForecastEngine(cfg)
-            df = engine.load_json(args.input)
-            print(f"   -> Terbaca {len(df)} candles ({df['datetime'].iloc[0]} -> {df['datetime'].iloc[-1]})")
-            print(f"   -> Harga Penutupan Terakhir: ${df['close'].iloc[-1]:,.2f}")
 
-            engine.build_features()
-            metrics = engine.run_walk_forward_backtest()
+            res = run_forecast_pipeline(
+                source=args.input,
+                horizon_steps=args.horizon,
+                mc_simulations=args.mc_sims,
+            )
+
+            meta = res["metadata"]
+            sum_data = res["summary"]
+            metrics = res["backtest_metrics"]
+            weights = res["ensemble_weights"]
+            spot = res.get("spot_order_recommendation", {})
+
+            print(f"   -> Terbaca {meta.get('total_candles')} candles ({meta.get('symbol')} {meta.get('timeframe')})")
+            print(f"   -> Harga Penutupan Terakhir: ${sum_data['last_close']:,.4f}")
+            print(f"   -> Rezim Pasar Terdeteksi  : {sum_data.get('market_regime', 'UNKNOWN')}")
+
             print("\n📊 Bobot Ensemble & Akurasi Walk-Forward:")
-            for m_name, w in engine.ensemble_weights.items():
-                print(f"   • {m_name:20s}: {w * 100:5.2f}% | Path RMSE: ${metrics[m_name]['RMSE_Path']:,.2f} | DA: {metrics[m_name]['DA_Avg']:.2f}%")
-            ens_m = metrics["M6_Best_Ensemble"]
-            print(f"   🎯 Ensemble Terbaik -> Path RMSE: ${ens_m['RMSE_Path']:,.2f} | Avg DA: {ens_m['DA_Avg']:.2f}%")
+            for m_name, w in weights.items():
+                m_met = metrics.get(m_name, {})
+                print(f"   • {m_name:20s}: {w * 100:5.2f}% | Path RMSE: ${m_met.get('RMSE_Path', 0.0):,.4f} | DA: {m_met.get('DA_Avg', 0.0):.2f}%")
+            ens_m = metrics.get("M6_Best_Ensemble", {})
+            print(f"   🎯 Ensemble Terbaik -> Path RMSE: ${ens_m.get('RMSE_Path', 0.0):,.4f} | Avg DA: {ens_m.get('DA_Avg', 0.0):.2f}%")
+            print(f"   🔮 Target Horizon ({sum_data.get('horizon_hours')}h) -> ${sum_data.get('horizon_target'):,.4f} ({sum_data.get('expected_return_pct'):+.2f}%) [{sum_data.get('direction')}]")
 
-            df_fc = engine.generate_forecasts()
-            barriers = engine.simulate_barrier_probabilities(df_fc)
+            if spot:
+                print("\n" + "=" * 80)
+                print(f"🎯 REKOMENDASI SETINGAN OPEN ORDER SPOT ({meta.get('symbol', 'UNKNOWN')})")
+                print("=" * 80)
+                print(f"• Keputusan / Vonis     : {spot['action_badge']} ({spot['verdict']})")
+                print(f"• Profil Risiko Pasar   : {spot['risk_level']} | Rezim: {sum_data.get('market_regime')}")
+                print(f"• Saran Alokasi Modal   : {spot['recommended_portfolio_allocation']}")
+                print(f"• Rasio Risk / Reward   : {spot['risk_reward_ratio']:.2f} : 1 (Ekspektasi: +{spot['expected_blended_gain_pct']:.2f}% | Risiko SL: {spot['stop_loss_risk_pct']:.2f}%)")
+                print(f"• Breakout Entry Level  : ${spot['breakout_entry_trigger']:,.4f} (Stop Limit Buy jika momentum breakout)")
+                print("-" * 80)
+                print("📥 LADDER 1: STRATEGI PEMBELIAN DCA (STAGGERED LIMIT BIDS)")
+                print(f"{'Tier Order':35s} | {'Harga Limit':14s} | {'Jarak Spot':11s} | {'Bobot Modal':11s}")
+                print("-" * 80)
+                for e in spot.get("entry_ladder", []):
+                    print(f"{e['tier']:35s} | ${e['price']:12,.4f} | {e['offset_pct']:+9.2f}% | {e['weight_pct']:8d}%")
+                print("-" * 80)
+                print(f"⭐️ Rata-rata Entry (Blended Entry) : ${spot['blended_entry_price']:,.4f} (Diskon {abs(spot['blended_entry_discount_pct']):.2f}% dari spot)")
+                print("-" * 80)
+                print("💰 LADDER 2: TARGET TAKE PROFIT BERTAHAP (SCALED SELLING)")
+                print(f"{'Target Take Profit':35s} | {'Harga Jual':14s} | {'Potensi Cuan':12s} | {'Porsi Jual':11s}")
+                print("-" * 80)
+                for t in spot.get("take_profit_ladder", []):
+                    print(f"{t['tier']:35s} | ${t['price']:12,.4f} | {t['gain_pct']:+10.2f}% | {t['close_qty_pct']:8d}%")
+                print("-" * 80)
+                print(f"⭐️ Rata-rata Take Profit (Blended TP): ${spot['blended_take_profit_price']:,.4f} (Rata-rata cuan +{spot['expected_blended_gain_pct']:.2f}%)")
+                print("-" * 80)
+                print("🛡️ PROTEKSI INVALIDASI & STOP LOSS")
+                print(f"• Level Invalidation Stop Loss       : ${spot['stop_loss_price']:,.4f} ({spot['stop_loss_risk_pct']:.2f}% dari Blended Entry)")
+                print(f"• Rasional Invalidation              : {spot['invalidation_rationale']}")
+                print("=" * 80)
 
+            # Export files
+            df_fc = pd.DataFrame(res["forecast_data"])
             df_fc.to_csv(args.out_csv, index=False)
             with open(args.out_json, "w", encoding="utf-8") as f:
-                json.dump({
-                    "metadata": engine.metadata,
-                    "ensemble_weights": engine.ensemble_weights,
-                    "garch_params": engine.garch_params,
-                    "backtest_metrics": metrics,
-                    "barrier_probabilities": barriers,
-                }, f, indent=2)
+                json.dump(res, f, indent=2)
+
             print(f"\n✅ Selesai! Trajectory disimpan ke: {args.out_csv}")
-            print(f"✅ Ringkasan disimpan ke: {args.out_json}")
+            print(f"✅ Ringkasan lengkap disimpan ke: {args.out_json}")
 
         elif args.subcommand == "replay":
             from crypto_forecast_engine import run_replay_pipeline

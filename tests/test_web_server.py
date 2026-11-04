@@ -48,6 +48,7 @@ class TestWebServer(unittest.TestCase):
         self.assertEqual(len(data["forecast_data"]), 16)
         self.assertIn("M6_Best_Ensemble", data["backtest_metrics"])
         self.assertIn("M1_Holt_Damped", data["ensemble_weights"])
+        self.assertIn("spot_order_recommendation", data)
 
     def test_simulate_barriers_endpoint(self):
         payload = {
@@ -95,6 +96,7 @@ class TestWebServer(unittest.TestCase):
         self.assertIn("comparison_steps", data)
         self.assertEqual(len(data["comparison_steps"]), 16)
         self.assertEqual(data["summary"]["back_candles"], 16)
+        self.assertIn("spot_order_recommendation", data)
 
 
 if __name__ == "__main__":

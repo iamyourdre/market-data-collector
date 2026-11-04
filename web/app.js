@@ -116,6 +116,21 @@ const elements = {
   replayBannerDetails: document.getElementById("replayBannerDetails"),
   replayBannerMatch: document.getElementById("replayBannerMatch"),
   btnCloseReplayBanner: document.getElementById("btnCloseReplayBanner"),
+  spotOrderCard: document.getElementById("spotOrderCard"),
+  spotActionBadge: document.getElementById("spotActionBadge"),
+  spotVerdictSubtitle: document.getElementById("spotVerdictSubtitle"),
+  spotRrrValue: document.getElementById("spotRrrValue"),
+  spotAllocationValue: document.getElementById("spotAllocationValue"),
+  spotBlendedEntry: document.getElementById("spotBlendedEntry"),
+  spotBlendedDiscount: document.getElementById("spotBlendedDiscount"),
+  spotBlendedTp: document.getElementById("spotBlendedTp"),
+  spotExpectedGain: document.getElementById("spotExpectedGain"),
+  spotStopLoss: document.getElementById("spotStopLoss"),
+  spotSlRisk: document.getElementById("spotSlRisk"),
+  spotBreakoutTrigger: document.getElementById("spotBreakoutTrigger"),
+  spotEntryLadderBody: document.getElementById("spotEntryLadderBody"),
+  spotTpLadderBody: document.getElementById("spotTpLadderBody"),
+  spotRationaleContainer: document.getElementById("spotRationaleContainer"),
   loadingOverlay: document.getElementById("loadingOverlay"),
   loadingMessage: document.getElementById("loadingMessage"),
   toastContainer: document.getElementById("toastContainer"),
@@ -745,10 +760,117 @@ function updateDashboard() {
   elements.metricBestModelTag.textContent = `Top: ${bestName}`;
 
   // Update panels
+  updateSpotOrderPanel();
   updateModelsList();
   updateMetricsTable();
   updateBarriersPanel();
   updateDataTable();
+}
+
+function updateSpotOrderPanel() {
+  const data = state.activeData;
+  if (!data || !data.spot_order_recommendation || !elements.spotOrderCard) {
+    if (elements.spotOrderCard) elements.spotOrderCard.style.display = "none";
+    return;
+  }
+
+  const spot = data.spot_order_recommendation;
+  elements.spotOrderCard.style.display = "block";
+
+  // Action Badge & Subtitle
+  if (elements.spotActionBadge) {
+    elements.spotActionBadge.textContent = spot.action_badge || spot.verdict;
+    const vUpper = String(spot.verdict || "").toUpperCase();
+    if (vUpper.includes("STRONG BUY") || vUpper.includes("BULLISH")) {
+      elements.spotActionBadge.className = "metric-tag tag-bullish";
+    } else if (vUpper.includes("DEFENSIVE") || vUpper.includes("BEARISH")) {
+      elements.spotActionBadge.className = "metric-tag tag-neutral";
+    } else {
+      elements.spotActionBadge.className = "metric-tag tag-neutral";
+    }
+  }
+
+  if (elements.spotVerdictSubtitle) {
+    elements.spotVerdictSubtitle.textContent = `${spot.verdict} • Profil Risiko: ${spot.risk_level}`;
+  }
+
+  // RRR & Allocation
+  if (elements.spotRrrValue) {
+    elements.spotRrrValue.textContent = `${(spot.risk_reward_ratio || 0).toFixed(2)} : 1`;
+  }
+  if (elements.spotAllocationValue) {
+    elements.spotAllocationValue.textContent = spot.recommended_portfolio_allocation || "--";
+  }
+
+  // Quick summary pills
+  if (elements.spotBlendedEntry) {
+    elements.spotBlendedEntry.textContent = `$${formatPrice(spot.blended_entry_price)}`;
+  }
+  if (elements.spotBlendedDiscount) {
+    elements.spotBlendedDiscount.textContent = `Diskon ${Math.abs(spot.blended_entry_discount_pct || 0).toFixed(2)}% vs harga spot saat ini`;
+  }
+
+  if (elements.spotBlendedTp) {
+    elements.spotBlendedTp.textContent = `$${formatPrice(spot.blended_take_profit_price)}`;
+  }
+  if (elements.spotExpectedGain) {
+    elements.spotExpectedGain.textContent = `Ekspektasi Cuan +${(spot.expected_blended_gain_pct || 0).toFixed(2)}% dari blended entry`;
+  }
+
+  if (elements.spotStopLoss) {
+    elements.spotStopLoss.textContent = `$${formatPrice(spot.stop_loss_price)}`;
+  }
+  if (elements.spotSlRisk) {
+    elements.spotSlRisk.textContent = `Downside Risk ${(spot.stop_loss_risk_pct || 0).toFixed(2)}% (GARCH 95% Invalidation)`;
+  }
+
+  if (elements.spotBreakoutTrigger) {
+    elements.spotBreakoutTrigger.textContent = `$${formatPrice(spot.breakout_entry_trigger)}`;
+  }
+
+  // Table 1: Entry DCA Ladder
+  if (elements.spotEntryLadderBody) {
+    elements.spotEntryLadderBody.innerHTML = "";
+    (spot.entry_ladder || []).forEach((e) => {
+      const tr = document.createElement("tr");
+      tr.innerHTML = `
+        <td style="font-weight: 600;">${e.tier}</td>
+        <td style="font-family: var(--font-mono); color: var(--color-cyan); font-weight: 700;">$${formatPrice(e.price)}</td>
+        <td style="font-family: var(--font-mono); color: var(--text-secondary);">${e.offset_pct >= 0 ? "+" : ""}${e.offset_pct.toFixed(2)}%</td>
+        <td style="font-family: var(--font-mono); color: #34d399; font-weight: 600;">${e.weight_pct}% modal</td>
+      `;
+      elements.spotEntryLadderBody.appendChild(tr);
+    });
+  }
+
+  // Table 2: Take Profit Ladder
+  if (elements.spotTpLadderBody) {
+    elements.spotTpLadderBody.innerHTML = "";
+    (spot.take_profit_ladder || []).forEach((t) => {
+      const tr = document.createElement("tr");
+      tr.innerHTML = `
+        <td style="font-weight: 600;">${t.tier}</td>
+        <td style="font-family: var(--font-mono); color: #34d399; font-weight: 700;">$${formatPrice(t.price)}</td>
+        <td style="font-family: var(--font-mono); color: #34d399;">+${t.gain_pct.toFixed(2)}%</td>
+        <td style="font-family: var(--font-mono); color: var(--color-cyan); font-weight: 600;">Jual ${t.close_qty_pct}% koin</td>
+      `;
+      elements.spotTpLadderBody.appendChild(tr);
+    });
+  }
+
+  // Rationale notes
+  if (elements.spotRationaleContainer) {
+    const notes = spot.rationale || [];
+    let html = `<div style="font-weight: 600; margin-bottom: 0.35rem; color: var(--text-main);">Catatan Strategi & Manajemen Risiko Spot:</div><ul style="padding-left: 1.25rem; margin: 0; line-height: 1.6;">`;
+    notes.forEach((n) => {
+      html += `<li>${n}</li>`;
+    });
+    if (spot.invalidation_rationale) {
+      html += `<li style="color: #f87171;"><b>Batas Invalidasi:</b> ${spot.invalidation_rationale}</li>`;
+    }
+    html += `</ul>`;
+    elements.spotRationaleContainer.innerHTML = html;
+  }
 }
 
 function updateModelsList() {
@@ -1605,6 +1727,9 @@ function formatPrice(val) {
   if (val === undefined || val === null || isNaN(val)) return "0.00";
   if (val >= 1000) {
     return val.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  }
+  if (val < 0.001) {
+    return val.toFixed(6);
   }
   return val.toFixed(4);
 }

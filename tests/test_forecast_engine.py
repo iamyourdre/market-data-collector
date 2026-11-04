@@ -119,6 +119,61 @@ class TestCryptoForecastEngine(unittest.TestCase):
         self.assertIn("direction_match", result["summary"])
         self.assertIsInstance(result["summary"]["direction_match"], bool)
 
+    def test_spot_order_recommendation(self):
+        """Test spot open order recommendation generation and field integrity."""
+        result = run_forecast_pipeline(
+            source=str(ETH_JSON_PATH),
+            horizon_steps=24,
+            mc_simulations=1000,
+        )
+        self.assertIn("spot_order_recommendation", result)
+        spot = result["spot_order_recommendation"]
+
+        # Check required fields
+        required_keys = [
+            "verdict",
+            "action_badge",
+            "risk_level",
+            "current_spot_price",
+            "recommended_portfolio_allocation",
+            "risk_reward_ratio",
+            "blended_entry_price",
+            "blended_entry_discount_pct",
+            "expected_blended_gain_pct",
+            "blended_take_profit_price",
+            "stop_loss_price",
+            "stop_loss_risk_pct",
+            "breakout_entry_trigger",
+            "entry_ladder",
+            "take_profit_ladder",
+            "rationale",
+        ]
+        for k in required_keys:
+            self.assertIn(k, spot, f"Missing key in spot recommendation: {k}")
+
+        self.assertIsInstance(spot["verdict"], str)
+        self.assertGreater(spot["risk_reward_ratio"], 0.0)
+
+        # Check Entry Ladder
+        self.assertEqual(len(spot["entry_ladder"]), 3)
+        weights_sum = sum(e["weight_pct"] for e in spot["entry_ladder"])
+        self.assertEqual(weights_sum, 100)
+        e1, e2, e3 = [e["price"] for e in spot["entry_ladder"]]
+        self.assertTrue(e1 >= e2 >= e3, f"Entry prices not descending: {e1}, {e2}, {e3}")
+        self.assertTrue(e3 <= spot["blended_entry_price"] <= e1)
+
+        # Check Take Profit Ladder
+        self.assertEqual(len(spot["take_profit_ladder"]), 3)
+        tp_qty_sum = sum(t["close_qty_pct"] for t in spot["take_profit_ladder"])
+        self.assertEqual(tp_qty_sum, 100)
+        tp1, tp2, tp3 = [t["price"] for t in spot["take_profit_ladder"]]
+        self.assertTrue(tp1 <= tp2 <= tp3, f"TP prices not ascending: {tp1}, {tp2}, {tp3}")
+        self.assertGreater(tp1, spot["blended_entry_price"])
+
+        # Check Stop Loss & Breakout Trigger
+        self.assertLess(spot["stop_loss_price"], spot["blended_entry_price"])
+        self.assertGreater(spot["breakout_entry_trigger"], spot["current_spot_price"])
+
 
 if __name__ == "__main__":
     unittest.main()

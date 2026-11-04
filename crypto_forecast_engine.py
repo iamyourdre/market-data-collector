@@ -928,6 +928,155 @@ class CryptoForecastEngine:
         return probs
 
 
+def generate_spot_order_recommendation(
+    df_hist: pd.DataFrame,
+    df_fc: pd.DataFrame,
+    summary: Dict[str, Any],
+) -> Dict[str, Any]:
+    """
+    Computes professional Spot Open Order recommendations based on forecast trajectory,
+    GARCH volatility confidence bands, and market microstructure.
+    Provides:
+      - Action Verdict & Suggested Wallet Allocation
+      - 3-tier Staggered Limit Buy (DCA Pyramid)
+      - Breakout Entry Trigger
+      - 3-tier Take Profit Ladder
+      - Invalidation Stop Loss Level
+      - Expected Blended Return & Risk-to-Reward Ratio (RRR)
+    """
+    p0 = float(summary.get("last_close", summary.get("cutoff_price", df_hist["close"].iloc[-1])))
+    regime = summary.get("market_regime", "RANGING_CONSOLIDATION")
+    ret_pct = float(summary.get("expected_return_pct", summary.get("predicted_change_pct", 0.0)))
+    da_avg = float(summary.get("best_ensemble_da", summary.get("step_directional_accuracy", 60.0)))
+
+    if p0 < 0.001:
+        decimals = 6
+    elif p0 < 0.1:
+        decimals = 5
+    elif p0 < 1.0:
+        decimals = 4
+    elif p0 < 10.0:
+        decimals = 3
+    elif p0 < 1000.0:
+        decimals = 2
+    elif p0 < 10000.0:
+        decimals = 2
+    else:
+        decimals = 1
+
+    atr_pct = float(df_hist["atr_pct"].iloc[-1]) if "atr_pct" in df_hist else 1.0
+    ci50_lo = float(np.min(df_fc["ci_50_lower"].values))
+    ci80_lo = float(np.min(df_fc["ci_80_lower"].values))
+    ci95_lo = float(np.min(df_fc["ci_95_lower"].values))
+
+    ci50_hi = float(np.max(df_fc["ci_50_upper"].values))
+    ci80_hi = float(np.max(df_fc["ci_80_upper"].values))
+    ci95_hi = float(np.max(df_fc["ci_95_upper"].values))
+
+    h24 = float(df_hist["high"].tail(24).max()) if len(df_hist) >= 24 else float(df_hist["high"].max())
+    l24 = float(df_hist["low"].tail(24).min()) if len(df_hist) >= 24 else float(df_hist["low"].min())
+    ema20 = float(df_hist["ema_20"].iloc[-1]) if "ema_20" in df_hist else p0
+    ema50 = float(df_hist["ema_50"].iloc[-1]) if "ema_50" in df_hist else p0
+
+    # 1. Action Verdict & Allocation Advice
+    if "BULLISH" in regime and da_avg >= 65.0:
+        verdict = "STRONG BUY / AGGRESSIVE ACCUMULATION"
+        action_badge = "BUY"
+        alloc_advice = "15% - 25% Saldo Spot"
+        risk_level = "RENDAH (Konfirmasi Tren Bullish)"
+    elif "BEARISH" in regime:
+        verdict = "DEFENSIVE ACCUMULATION / BUY-THE-DIP"
+        action_badge = "DEFENSIVE_DCA"
+        alloc_advice = "5% - 10% Saldo Spot (Alokasi Bertahap)"
+        risk_level = "SEDANG (Tekanan Jual Masif, Beli Hanya di Support Dalam)"
+    elif regime == "VOLATILE_EXPANSION":
+        verdict = "VOLATILITY BREAKOUT / SCALE-IN"
+        action_badge = "SCALE_IN"
+        alloc_advice = "8% - 12% Saldo Spot"
+        risk_level = "TINGGI (Volatilitas Sedang Mengembang)"
+    else:
+        verdict = "RANGE-BOUND ACCUMULATION / GRID BUY"
+        action_badge = "RANGE_ACCUMULATE"
+        alloc_advice = "10% - 15% Saldo Spot"
+        risk_level = "RENDAH (Konsolidasi Mendatar)"
+
+    # 2. DCA Entry Ladder
+    if "BEARISH" in regime:
+        e1 = min(p0 * 0.988, ci50_lo)
+        e2 = min(e1 * 0.985, ci80_lo)
+        e3 = min(e2 * 0.980, ci95_lo)
+    elif "BULLISH" in regime:
+        e1 = p0 * (1.0 - max(0.005, 0.35 * atr_pct / 100.0))
+        e2 = min(e1 * 0.988, max(ci50_lo, ema20))
+        e3 = min(e2 * 0.982, ci80_lo)
+    else:
+        e1 = p0 * (1.0 - max(0.006, 0.40 * atr_pct / 100.0))
+        e2 = min(e1 * 0.985, ci50_lo)
+        e3 = min(e2 * 0.980, ci80_lo)
+
+    e1 = round(e1, decimals)
+    e2 = round(min(e2, e1 * 0.995), decimals)
+    e3 = round(min(e3, e2 * 0.990), decimals)
+
+    w1, w2, w3 = 0.35, 0.40, 0.25
+    blended_entry = round(w1 * e1 + w2 * e2 + w3 * e3, decimals)
+    discount_pct = round(((blended_entry - p0) / p0) * 100.0, 2)
+
+    # 3. Take Profit Ladder
+    tp1 = max(blended_entry * 1.015, ci50_hi)
+    tp2 = max(tp1 * 1.020, ci80_hi)
+    tp3 = max(tp2 * 1.030, ci95_hi)
+
+    tp1 = round(tp1, decimals)
+    tp2 = round(max(tp2, tp1 * 1.015), decimals)
+    tp3 = round(max(tp3, tp2 * 1.025), decimals)
+
+    wtp1, wtp2, wtp3 = 0.40, 0.40, 0.20
+    blended_tp = round(wtp1 * tp1 + wtp2 * tp2 + wtp3 * tp3, decimals)
+    expected_gain_pct = round(((blended_tp - blended_entry) / blended_entry) * 100.0, 2)
+
+    # 4. Stop Loss
+    sl = min(e3 * 0.98, ci95_lo * 0.995)
+    sl = round(sl, decimals)
+    sl_risk_pct = round(((sl - blended_entry) / blended_entry) * 100.0, 2)
+
+    # 5. Risk-Reward Ratio (RRR)
+    rrr = round(expected_gain_pct / max(0.1, abs(sl_risk_pct)), 2)
+    breakout_level = round(max(h24 * 1.002, p0 * (1.0 + 0.4 * atr_pct / 100.0)), decimals)
+
+    return {
+        "verdict": verdict,
+        "action_badge": action_badge,
+        "risk_level": risk_level,
+        "current_spot_price": p0,
+        "recommended_portfolio_allocation": alloc_advice,
+        "risk_reward_ratio": rrr,
+        "blended_entry_price": blended_entry,
+        "blended_entry_discount_pct": discount_pct,
+        "expected_blended_gain_pct": expected_gain_pct,
+        "blended_take_profit_price": blended_tp,
+        "stop_loss_price": sl,
+        "stop_loss_risk_pct": sl_risk_pct,
+        "breakout_entry_trigger": breakout_level,
+        "entry_ladder": [
+            {"tier": "Entry 1 (Pullback Ringan)", "price": e1, "weight_pct": 35, "offset_pct": round(((e1 - p0) / p0) * 100.0, 2)},
+            {"tier": "Entry 2 (Support Kunci GARCH 50%)", "price": e2, "weight_pct": 40, "offset_pct": round(((e2 - p0) / p0) * 100.0, 2)},
+            {"tier": "Entry 3 (Liquidation Wick Bid GARCH 80%)", "price": e3, "weight_pct": 25, "offset_pct": round(((e3 - p0) / p0) * 100.0, 2)},
+        ],
+        "take_profit_ladder": [
+            {"tier": "TP 1 (Target Konservatif)", "price": tp1, "close_qty_pct": 40, "gain_pct": round(((tp1 - blended_entry) / blended_entry) * 100.0, 2)},
+            {"tier": "TP 2 (Target Utama Model GARCH 80%)", "price": tp2, "close_qty_pct": 40, "gain_pct": round(((tp2 - blended_entry) / blended_entry) * 100.0, 2)},
+            {"tier": "TP 3 (Moonbag Runner GARCH 95%)", "price": tp3, "close_qty_pct": 20, "gain_pct": round(((tp3 - blended_entry) / blended_entry) * 100.0, 2)},
+        ],
+        "invalidation_rationale": f"Penutupan lilin di bawah ${sl:,.{decimals}f} menembus batas corong volatilitas ci_95_lower.",
+        "rationale": [
+            f"Rezim pasar terdeteksi: {regime} dengan ATR: {atr_pct:.2f}%.",
+            f"Strategi Staggered DCA Limit Orders memberikan diskon rata-rata {abs(discount_pct):.2f}% dari harga spot saat ini.",
+            f"Rasio Risk-to-Reward {rrr:.2f}:1 untuk swing spot (Take Profit +{expected_gain_pct:.2f}% vs Downside Risk {sl_risk_pct:.2f}%)."
+        ]
+    }
+
+
 def run_forecast_pipeline(
     source: Union[str, dict],
     horizon_steps: int = 48,
@@ -1014,6 +1163,19 @@ def run_forecast_pipeline(
         "horizon_steps": horizon_steps,
     })
 
+    summary_data = {
+        "direction": direction,
+        "last_close": last_close,
+        "horizon_target": ens_final,
+        "expected_return_pct": round(ret_pct, 2),
+        "tau_deadband": round(tau_deadband, 2),
+        "market_regime": engine.detect_market_regime(df_hist)["regime"],
+        "horizon_hours": round(horizon_steps * engine.step_minutes / 60.0, 1),
+        "best_ensemble_da": round(backtest_metrics.get("M6_Best_Ensemble", {}).get("DA_Avg", 0.0), 2),
+        "best_ensemble_rmse": round(backtest_metrics.get("M6_Best_Ensemble", {}).get("RMSE_Path", 0.0), 2),
+    }
+    spot_rec = generate_spot_order_recommendation(df_hist, df_fc, summary_data)
+
     return {
         "metadata": meta,
         "historical_data": hist_records,
@@ -1022,17 +1184,8 @@ def run_forecast_pipeline(
         "backtest_metrics": backtest_metrics,
         "garch_params": engine.garch_params,
         "barrier_probabilities": barriers,
-        "summary": {
-            "direction": direction,
-            "last_close": last_close,
-            "horizon_target": ens_final,
-            "expected_return_pct": round(ret_pct, 2),
-            "tau_deadband": round(tau_deadband, 2),
-            "market_regime": engine.detect_market_regime(df_hist)["regime"],
-            "horizon_hours": round(horizon_steps * engine.step_minutes / 60.0, 1),
-            "best_ensemble_da": round(backtest_metrics.get("M6_Best_Ensemble", {}).get("DA_Avg", 0.0), 2),
-            "best_ensemble_rmse": round(backtest_metrics.get("M6_Best_Ensemble", {}).get("RMSE_Path", 0.0), 2),
-        }
+        "spot_order_recommendation": spot_rec,
+        "summary": summary_data,
     }
 
 
@@ -1238,6 +1391,36 @@ def run_replay_pipeline(
         "cutoff_price": p0,
     })
 
+    summary_data = {
+        "symbol": meta["symbol"],
+        "timeframe": meta["timeframe"],
+        "cutoff_datetime": cutoff_time,
+        "cutoff_price": round(p0, 4),
+        "last_close": round(p0, 4),
+        "final_actual_datetime": str(df_actual["datetime"].iloc[-1]),
+        "final_actual_price": round(p_act_final, 4),
+        "final_predicted_price": round(p_pred_final, 4),
+        "actual_change_pct": round(act_change_pct, 2),
+        "predicted_change_pct": round(pred_change_pct, 2),
+        "expected_return_pct": round(pred_change_pct, 2),
+        "actual_direction": act_dir,
+        "predicted_direction": pred_dir,
+        "direction_match": direction_match,
+        "strict_sign_match": strict_sign_match,
+        "tau_deadband": round(tau_deadband, 2),
+        "market_regime": engine.detect_market_regime(df_train)["regime"],
+        "best_ensemble_da": round(step_da, 1),
+        "rmse": round(rmse, 4),
+        "mae": round(mae, 4),
+        "mape": round(mape, 2),
+        "max_error_usd": round(max_err, 4),
+        "step_directional_accuracy": round(step_da, 1),
+        "pct_within_ci80": round(pct_within_ci80, 1),
+        "back_candles": back_candles,
+        "horizon_hours": round(H * engine.step_minutes / 60.0, 1),
+    }
+    spot_rec = generate_spot_order_recommendation(df_train, df_fc, summary_data)
+
     return {
         "metadata": meta,
         "historical_data": hist_records,
@@ -1247,31 +1430,8 @@ def run_replay_pipeline(
         "barrier_evaluation": barrier_eval,
         "ensemble_weights": engine.ensemble_weights,
         "backtest_metrics": backtest_metrics,
-        "summary": {
-            "symbol": meta["symbol"],
-            "timeframe": meta["timeframe"],
-            "cutoff_datetime": cutoff_time,
-            "cutoff_price": round(p0, 4),
-            "final_actual_datetime": str(df_actual["datetime"].iloc[-1]),
-            "final_actual_price": round(p_act_final, 4),
-            "final_predicted_price": round(p_pred_final, 4),
-            "actual_change_pct": round(act_change_pct, 2),
-            "predicted_change_pct": round(pred_change_pct, 2),
-            "actual_direction": act_dir,
-            "predicted_direction": pred_dir,
-            "direction_match": direction_match,
-            "strict_sign_match": strict_sign_match,
-            "tau_deadband": round(tau_deadband, 2),
-            "market_regime": engine.detect_market_regime(df_train)["regime"],
-            "rmse": round(rmse, 4),
-            "mae": round(mae, 4),
-            "mape": round(mape, 2),
-            "max_error_usd": round(max_err, 4),
-            "step_directional_accuracy": round(step_da, 1),
-            "pct_within_ci80": round(pct_within_ci80, 1),
-            "back_candles": back_candles,
-            "horizon_hours": round(H * engine.step_minutes / 60.0, 1),
-        },
+        "spot_order_recommendation": spot_rec,
+        "summary": summary_data,
     }
 
 
